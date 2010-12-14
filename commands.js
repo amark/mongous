@@ -1,0 +1,95 @@
+var BinaryParser = require('./bson/binary_parser').BinaryParser;
+var BSON = require('./bson/bson').BSON;
+var OrderedHash = require('./bson/collections').OrderedHash;
+
+/**
+  Base object used for common functionality
+**/
+var Commands = exports.Commands = function() {
+  return this.Commands
+};
+
+insert = function(c) {
+  var command_string = '';
+  c.checkKeys = c.checkKeys == null ? true : c.checkKeys;
+  for(var i = 0; i < c.documents.length; i++) {
+    command_string = command_string + BSON.serialize(c.documents[i], c.checkKeys);
+  }
+  // Build the command string
+  return BinaryParser.fromInt(0) + BinaryParser.encode_cstring(c.collectionName) + command_string;
+};
+
+update =  function(c) {
+  // Generate the command string
+  var command_string = BinaryParser.fromInt(0) + BinaryParser.encode_cstring(c.collectionName);
+  return command_string + BinaryParser.fromInt(c.flags) + BSON.serialize(c.spec) + BSON.serialize(c.document, false);
+};
+
+query = function(c) {
+  // Generate the command string
+  var command_string = BinaryParser.fromInt(c.queryOptions) + BinaryParser.encode_cstring(c.collectionName);
+  command_string = command_string + BinaryParser.fromInt(c.numberToSkip) + BinaryParser.fromInt(c.numberToReturn);
+  command_string = command_string + BSON.serialize(c.query);
+  if(c.returnFieldSelector != null)  {
+    // && (c.returnFieldSelector != {} ||)
+    if(c.returnFieldSelector instanceof OrderedHash && c.returnFieldSelector.length > 0) {
+      command_string = command_string + BSON.serialize(c.returnFieldSelector);
+    } else if(c.returnFieldSelector.constructor == Object) {
+      var count = 0; for(var name in c.returnFieldSelector) { count += 1; }
+      if(count > 0) command_string = command_string + BSON.serialize(c.returnFieldSelector);
+    }
+  }
+  return command_string;
+};
+
+Commands.toBinary = function(cmd) {
+  // Get the command op code
+  var op_code = cmd.op; delete cmd.op;
+  console.log(cmd);
+  // Get the command data structure
+  var command = '';
+  switch(op_code) {
+		case 2001: 
+			command = update(cmd);
+		break;
+		case 2002: 
+			command = insert(cmd);
+		break;
+  }
+  // Total Size of command
+  var totalSize = 4*4 + command.length;
+  // Create the command with the standard header file
+  var hd = BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(this.requestId) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op_code);
+  var s = hd + command;
+  console.log('sending:');
+  console.log(s.toString());
+  return s;
+};
+
+var id = 1;
+Commands.getRequestId = function(cmd) {
+  if (!cmd.requestId) cmd.requestId = id++;
+  return cmd.requestId;
+};
+
+Commands.add = function(document) {
+  this.documents.push(document);
+  return this;
+};
+
+Commands.getOpCode = function(cmd) {
+  return this.OP_INSERT;
+};
+
+// OpCodes
+Commands.OP_REPLY = 1;
+Commands.OP_MSG = 1000;
+Commands.OP_UPDATE = 2001;
+Commands.OP_INSERT =	2002;
+Commands.OP_GET_BY_OID = 2003;
+Commands.OP_QUERY = 2004;
+Commands.OP_GET_MORE = 2005;
+Commands.OP_DELETE =	2006;
+Commands.OP_KILL_CURSORS =	2007;
+Commands.documents = [];
+Commands.checkKeys = true; //checkKeys == null ? true : checkKeys;
