@@ -106,7 +106,7 @@ class con extends ee
 					if v
 						while con.msg.length > 0
 							console.log con.msg
-							@write con.msg.shift(), 'binary'
+							con.c.write con.msg.shift(), 'binary'
 			if con.c.readyState != 'open' and con.recon
 				con.msg.push cmd
 				if con.c.currently_reconnecting == null
@@ -197,4 +197,5 @@ class db
 		
 db('mongous.please').insert({bat: 'roar'})
 db('mongous.please').update({bat: 'roar'}, {bat: 'squEEk'}, {upsert: 1})
-db('mongous.please').query()
+db('mongous.please').query({bat: 'roar'})
+db('mongous.please').query({bat: 'squEEk'})
