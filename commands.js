@@ -42,9 +42,10 @@ query = function(c) {
   return command_string;
 };
 
-Commands.toBinary = function(cmd) {
+Commands.binary = function(cmd) {
   // Get the command op code
   var op_code = cmd.op; delete cmd.op;
+  console.log('sending:');
   console.log(cmd);
   // Get the command data structure
   var command = '';
@@ -55,13 +56,15 @@ Commands.toBinary = function(cmd) {
 		case 2002: 
 			command = insert(cmd);
 		break;
+		case 2004: 
+			command = query(cmd);
+		break;
   }
   // Total Size of command
   var totalSize = 4*4 + command.length;
   // Create the command with the standard header file
   var hd = BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(this.requestId) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op_code);
   var s = hd + command;
-  console.log('sending:');
   console.log(s.toString());
   return s;
 };

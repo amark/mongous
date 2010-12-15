@@ -7,6 +7,7 @@ command = require('./commands').Commands
 
 class con extends ee
 	con.c = null
+	con.s = false
 	con.d = true
 	con.msg = []
 	con.ms = 0
@@ -14,7 +15,7 @@ class con extends ee
 	con.b = ''
 	con.bb = ''
 	con.port = 27017
-	con.host = 'localhost'
+	con.host = '127.0.0.1'
 	con.recon = false
 	
 	open: (port, host, recon) ->
@@ -23,24 +24,25 @@ class con extends ee
 		con.recon = if recon then recon else con.recon
 		con.c = net.createConnection con.port, con.host
 		con.c.setEncoding 'binary'
-		con.c.addListener 'connect', () =>
-			@setEncoding 'binary'
-			@setTimeout 0
-			@setNoDelay()
+		con.c.addListener 'connect', () ->
+			console.log "connecting..."
+			con.c.setEncoding 'binary'
+			con.c.setTimeout 0
+			con.c.setNoDelay()
 			MasterCmd =
+				op: 2004
 				collectionName: 'mongous.$cmd'
 				queryOptions: 16
 				numberToSkip: 0
 				numberToReturn: -1
 				query: { ismaster: 1 }
 				returnFieldSelector: null
-			con.send( command.query(MasterCmd) )
-			con.c.emit 'connect'
+			con.c.write( command.binary(MasterCmd), 'binary' )
 		con.c.addListener 'error', (e) =>
 			con.c.emit 'error', e
 		con.c.addListener 'close', () =>
 			con.c.emit 'close'
-		con.receiveListener = (res) ->
+		con.c.addListener 'data', (res) ->
 			if con.byt > 0 and con.som > 0
 				bytr = con.som - con.byt
 				if bytr > res.length
@@ -48,12 +50,16 @@ class con extends ee
 					con.byt += res.length
 				else
 					con.b += res.substr 0, bytr
-					con.c.emit 'data', con.b
+					console.log 'data 1'
+					r = new mr(con.b)
+					if r.responseFlag > 0
+						console.log r
 					con.b = ''
 					con.byt = 0
 					con.som = 0
 				if bytr < res.length
-					con.receiveListener(res.substr bytr, res.length - bytr)
+					console.log 'data 0'
+					console.log(res.substr bytr, res.length-bytr)
 			else if con.bb.length > 0
 				res = con.bb + res
 				con.bb = ''
@@ -64,20 +70,43 @@ class con extends ee
 					con.byt = res.length
 					con.som = som
 				else if som == res.length
-					con.c.emit 'data', res
+					console.log 'data 2'
+					r = new mr(res)
+					if r.responseFlag > 0
+						console.log r
+					try
+						if r.documents[0].ismaster
+							con.s = true
+							con.c.emit 'connected', con.s
+							console.log 'emitted connected'
+						else con.s = false
+					catch e
+						con.s = false
 				else if som < res.length
-					con.c.emit('data', res.substr 0, som)
-					con.receiveListener(res.substr som, res.length - som)
+					console.log 'data 3'
+					r = new mr(res.substr 0, som)
+					if r.responseFlag > 0
+						console.log r
+					console.log(res.substr som, res.length-som)
 			else s.bb = res
-		con.c.addListener 'data', con.receiveListener
-	
+		
 	close: () ->
 		if con.c then con.c.end()
 		
 	send: (cmd) ->
+		console.log con.c
 		try
 			con.c.write cmd, 'binary'
 		catch e
+			if con.c._connecting
+				console.log 'waiting to connect'
+				con.msg.push cmd
+				con.c.addListener 'connected', (v) =>
+					console.log 'finished connecting!'
+					if v
+						while con.msg.length > 0
+							console.log con.msg
+							@write con.msg.shift(), 'binary'
 			if con.c.readyState != 'open' and con.recon
 				con.msg.push cmd
 				if con.c.currently_reconnecting == null
@@ -88,15 +117,15 @@ class con extends ee
 						@setEncoding 'binary'
 						@setTimeout 0
 						@setNoDelay()
-						@addListener 'data', con.receiveListener
+						@addListener 'data', con.c.receiveListener
 						con.c = @
 						while con.msg.length > 0
 							@write con.msg.shif(), 'binary'
-			else throw e
+			else console.log 'readyState not defined'
 
 class mongous extends con
 	constructor: (s) ->
-		if con.c is null then console.log @open() else con.c
+		if con.c is null then @open()
 		if s.length >= 80
 			console.log "Database name and collection exceed 80 character limit."
 		p = s.search(/\./)
@@ -114,25 +143,49 @@ class mongous extends con
 	
 	open: () -> super
 	
-	send: (cmd) -> super cmd
+	send: (cmd) -> super com.binary(cmd)
 	
 	update: (a, b, c..., z) ->
 		if !a or !b
 			@leg "Query and document required."
 		### to do: check namespaces ####
+		if typeof z != 'function'
+			c[0] = z
 		if c[0]
 			m = if c[0].multi then 1 else 0
 			u = if c[0].upsert then 1 else 0
 		else u = m = 0
+		console.log 'FLAGS:' + parseInt m.toString() + u.toString()
 		cmd =
 			op: 2001
-			collectionName: @db+'.please'
+			collectionName: @db+'.'+@col
 			flags: parseInt m.toString() + u.toString()
 			spec: a
 			document: b
+		console.log cmd
 		@send cmd
+		
+	query: (a) ->
+		a = if a is null then {} else a
+		cmd =
+			op: 2004
+			collectionName: @db+'.'+@col
+			numberToSkip: 0
+			numberToReturn: -1
+			query: a
+			returnFieldSelector: null
+		@send cmd
+	
+	insert: (a) ->
+		cmd =
+			op: 2002
+			collectionName: @db+'.'+@col
+			documents: a
+		@send cmd
+		
 	save: (a) ->
-		@send 'save'
+		console.log 'save'
+		
 	log : (info) ->
 		@emit 'log', " - "+ info
 	leg : (error) ->
@@ -142,4 +195,6 @@ class db
 	constructor: (s) ->
 		return new mongous s
 		
-db('mongous.testing').update({ cat: 'meow' }, { lion: 'roar'}, true, true)
+db('mongous.please').insert({bat: 'roar'})
+db('mongous.please').update({bat: 'roar'}, {bat: 'squEEk'}, {upsert: 1})
+db('mongous.please').query()

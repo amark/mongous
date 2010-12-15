@@ -42,8 +42,6 @@ var MongoReply = exports.MongoReply = function(binary_reply) {
     // Adjust for next object
     index = index + bsonObjectSize;
   }
-  console.log('replies:');
-  console.log(this.documents);
 };
 
 MongoReply.prototype.is_error = function(){
