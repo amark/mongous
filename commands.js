@@ -42,14 +42,10 @@ query = function(c) {
   return command_string;
 };
 
-Commands.binary = function(cmd) {
-  // Get the command op code
-  var op_code = cmd.op; delete cmd.op;
-  console.log('sending:');
-  console.log(cmd);
+Commands.binary = function(cmd, op, id) {
   // Get the command data structure
   var command = '';
-  switch(op_code) {
+  switch(op) {
 		case 2001: 
 			command = update(cmd);
 		break;
@@ -63,25 +59,10 @@ Commands.binary = function(cmd) {
   // Total Size of command
   var totalSize = 4*4 + command.length;
   // Create the command with the standard header file
-  var hd = BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(this.requestId) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op_code);
-  var s = hd + command;
-  console.log(s.toString());
-  return s;
-};
-
-var id = 1;
-Commands.getRequestId = function(cmd) {
-  if (!cmd.requestId) cmd.requestId = id++;
-  return cmd.requestId;
-};
-
-Commands.add = function(document) {
-  this.documents.push(document);
-  return this;
-};
-
-Commands.getOpCode = function(cmd) {
-  return this.OP_INSERT;
+  //var hd = BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(id) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op);
+  //var s = hd + command;
+  //console.log(s.toString());
+  return BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(id) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op) + command;
 };
 
 // OpCodes
@@ -95,4 +76,3 @@ Commands.OP_GET_MORE = 2005;
 Commands.OP_DELETE =	2006;
 Commands.OP_KILL_CURSORS =	2007;
 Commands.documents = [];
-Commands.checkKeys = true; //checkKeys == null ? true : checkKeys;
