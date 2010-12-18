@@ -11,3 +11,4 @@ Ex.
 		console.log data.documents
 	 });
 
+Mongous is a reduction ('less is more') of node-mongodb-driver by Christian Kvalheim.
