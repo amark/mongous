@@ -2,8 +2,8 @@ net = require('net')
 bp = require('./bson/binary_parser').BinaryParser
 ee  = require('events').EventEmitter
 com = require('./commands').Commands
+#oid = require('./bson').ObjectID
 mr = require('./responses/mongo_reply').MongoReply
-command = require('./commands').Commands
 
 class con extends ee
 	con.c = null
@@ -37,7 +37,7 @@ class con extends ee
 				numberToReturn: -1
 				query: { ismaster: 1 }
 				returnFieldSelector: null
-			con.c.write( command.binary(MasterCmd,2004,0), 'binary' )
+			con.c.write( com.binary(MasterCmd,2004,0), 'binary' )
 		con.c.addListener 'error', (e) =>
 			con.c.emit 'error', e
 		con.c.addListener 'close', () =>
@@ -69,13 +69,14 @@ class con extends ee
 						con.som = som
 					else if som == res.length
 						r = new mr(res)
-						console.log r
 						if !con.s
 							if r.documents[0].ismaster
 								con.s = true
+								console.log "connected!"
 								con.c.emit 'connected', con.s
 							else con.s = false
-						else con.c.emit r.responseTo.toString(), r
+						else
+							con.c.emit r.responseTo.toString(), r
 					else if som < res.length
 						r = new mr(res.substr 0, som)
 						con.c.emit r.responseTo.toString(), r
@@ -86,6 +87,7 @@ class con extends ee
 		if con.c then con.c.end()
 	
 	send: (cmd) ->
+		console.log cmd
 		try
 			con.c.write cmd, 'binary'
 		catch e
@@ -108,39 +110,53 @@ class con extends ee
 						con.c = @
 						while con.msg.length > 0
 							@write con.msg.shif(), 'binary'
-			else console.log 'readyState not defined'
+			else console.log 'Error: readyState not defined'
 	log : (info) ->
 		console.log 'log', " - "+ info
 	leg : (error) ->
-		@emit 'log', " - Error: "+ error.toString().replace(/error:/i, '')
+		console.log " - Error: "+ error.toString().replace(/error:/i, '')
 
 class mongous extends con
+
 	constructor: (s) ->
+		e = false
 		if con.c is null then @open()
 		if s.length >= 80
-			console.log "Database name and collection exceed 80 character limit."
+			console.log "Error: '" + s + "' - Database name and collection exceed 80 character limit."
+			e = true
 		p = s.search(/\./)
 		if p <= 0
-			console.log "Database.collection nomenclature required"
+			console.log "Error: '" + s + "' - Database.collection nomenclature required"
+			e = true
 		@db = s.slice 0, p
 		@col = s.substr p+1
 		if @col.search(/\$/) >= 0
 			if @col.search(/\$cmd/i) < 0
-				console.log " cannot use '$' unless for commands."
-			else console.log "silent."
+				console.log "Error: '" + s + "' - cannot use '$' unless for commands."
+				e = true
+			else 
+				console.log "Error: '" + s + "' - silent."
+				e = true
 		else if @col.search(/^[a-z|\_]/i) < 0
-			console.log "Collection must start with a letter or an underscore."
+			console.log "Error: '" + s + "' - Collection must start with a letter or an underscore."
+			e = true
+		if e 
+			@db = '!'
+			@col = '$'
 		@
 	
 	open: () -> super
 	
 	send: (cmd,op,id) -> 
-		id or= @id()
-		super com.binary(cmd,op,id)
+		if cmd.collectionName == '!.$'
+			false
+		else
+			id or= @id()
+			super com.binary(cmd,op,id)
 	
 	update: (a, b, c...) ->
 		if !a or !b
-			@leg "Query and document required."
+			console.log "Query and document required."
 		#to do: check namespaces
 		if c[0] or c.length is 2
 			if c[0] instanceof Object
@@ -163,38 +179,37 @@ class mongous extends con
 		obj = []
 		num = []
 		for i in a
-			console.log i
 			if i instanceof Function
 				fn = i
 			else if i instanceof Object
 				obj.push i
 			else if !isNaN(i)
 				num.push i
-		console.log obj
-		console.log num
-		console.log a
+		
 		q = if obj[0] then obj[0] else {}
 		f = if obj[1] then obj[1] else null
 		o = if obj[2] then obj[2] else {}
-		o.lim = if num[0] then num[0] else 10
-		o.skip = if num[1] then num[1] else 0
+		o =
+			lim: if o.lim isnt undefined then o.lim else if num[0] then num[0]
+			skip: if o.skip isnt undefined then o.skip else if num[1] then num[1] else 0
 		cmd =
 			collectionName: @db+'.'+@col
 			numberToSkip: o.skip
 			numberToReturn: o.lim
 			query: q
 			returnFieldSelector: f
-		console.log cmd
 		id = @id()
 		con.c.addListener id.toString(), (msg) =>
+			if fn then fn(msg)
 			con.c.removeListener(id.toString(), con.c.listeners(id.toString())[0])
 		@send cmd, 2004, id
 		
 	
-	insert: (a) ->
+	insert: (a...) ->
+		docs = if a[0] instanceof Array then a[0] else a
 		cmd =
 			collectionName: @db+'.'+@col
-			documents: a
+			documents: docs
 		@send cmd, 2002
 		
 	save: (a) ->
@@ -209,10 +224,3 @@ class mongous extends con
 class db
 	constructor: (s) ->
 		return new mongous s
-
-for i in [0..20]
-	db('happy.mob').save(alligator: i)
-
-db('happy.mob').find({}, 16, (r) ->
-	console.log r
-)

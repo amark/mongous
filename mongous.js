@@ -1,4 +1,4 @@
-var bp, com, command, con, db, ee, i, j, mongous, mr, net;
+var bp, com, con, db, ee, mongous, mr, net;
 var __hasProp = Object.prototype.hasOwnProperty, __extends = function(child, parent) {
   for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; }
   function ctor() { this.constructor = child; }
@@ -12,13 +12,13 @@ bp = require('./bson/binary_parser').BinaryParser;
 ee = require('events').EventEmitter;
 com = require('./commands').Commands;
 mr = require('./responses/mongo_reply').MongoReply;
-command = require('./commands').Commands;
 con = function() {
   function con() {
     con.__super__.constructor.apply(this, arguments);
   }
   __extends(con, ee);
   con.c = null;
+  con.r = null;
   con.s = false;
   con.d = true;
   con.msg = [];
@@ -29,20 +29,19 @@ con = function() {
   con.port = 27017;
   con.host = '127.0.0.1';
   con.recon = false;
-  con.prototype.open = function(port, host, recon) {
-    con.port = port ? port : con.port;
-    con.host = host ? port : con.host;
+  con.prototype.open = function(host, port, recon) {
+    con.port || (con.port = port);
+    con.host || (con.host = host);
     con.recon = recon ? recon : con.recon;
     con.c = net.createConnection(con.port, con.host);
     con.c.setEncoding('binary');
     con.c.addListener('connect', function() {
       var MasterCmd;
-      //console.log("connecting...");
+      console.log("connecting...");
       con.c.setEncoding('binary');
       con.c.setTimeout(0);
       con.c.setNoDelay();
       MasterCmd = {
-        op: 2004,
         collectionName: 'mongous.$cmd',
         queryOptions: 16,
         numberToSkip: 0,
@@ -52,7 +51,7 @@ con = function() {
         },
         returnFieldSelector: null
       };
-      return con.c.write(command.binary(MasterCmd), 'binary');
+      return con.c.write(com.binary(MasterCmd, 2004, 0), 'binary');
     });
     con.c.addListener('error', __bind(function(e) {
       return con.c.emit('error', e);
@@ -60,7 +59,7 @@ con = function() {
     con.c.addListener('close', __bind(function() {
       return con.c.emit('close');
     }, this));
-    return con.c.addListener('data', function(res) {
+    con.r = function(res) {
       var bytr, r, som;
       if (con.byt > 0 && con.som > 0) {
         bytr = con.som - con.byt;
@@ -69,58 +68,50 @@ con = function() {
           con.byt += res.length;
         } else {
           con.b += res.substr(0, bytr);
-          //console.log('data 1');
           r = new mr(con.b);
-          if (r.responseFlag > 0) {
-            //console.log(r);
-          }
+          con.c.emit(r.responseTo.toString(), r);
           con.b = '';
           con.byt = 0;
           con.som = 0;
         }
         if (bytr < res.length) {
-          //console.log('data 0');
-          //console.log(res.substr(bytr, res.length - bytr));
-        }
-      } else if (con.bb.length > 0) {
-        res = con.bb + res;
-        con.bb = '';
-      }
-      if (res.length > 4) {
-        som = bp.toInt(res.substr(0, 4));
-        if (som > res.length) {
-          con.b += res;
-          con.byt = res.length;
-          return con.som = som;
-        } else if (som === res.length) {
-          //console.log('data 2');
-          r = new mr(res);
-          if (r.responseFlag > 0) {
-            //console.log(r);
-          }
-          try {
-            if (r.documents[0].ismaster) {
-              con.s = true;
-              con.c.emit('connected', con.s);
-              return //console.log('emitted connected');
-            } else {
-              return con.s = false;
-            }
-          } catch (e) {
-            return con.s = false;
-          }
-        } else if (som < res.length) {
-          //console.log('data 3');
-          r = new mr(res.substr(0, som));
-          if (r.responseFlag > 0) {
-            //console.log(r);
-          }
-          return //console.log(res.substr(som, res.length - som));
+          return con.r(res.substr(bytr, res.length - bytr));
         }
       } else {
-        return s.bb = res;
+        if (con.bb.length > 0) {
+          res = con.bb + res;
+          con.bb = '';
+        }
+        if (res.length > 4) {
+          som = bp.toInt(res.substr(0, 4));
+          if (som > res.length) {
+            con.b += res;
+            con.byt = res.length;
+            return con.som = som;
+          } else if (som === res.length) {
+            r = new mr(res);
+            if (!con.s) {
+              if (r.documents[0].ismaster) {
+                con.s = true;
+                console.log("connected!");
+                return con.c.emit('connected', con.s);
+              } else {
+                return con.s = false;
+              }
+            } else {
+              return con.c.emit(r.responseTo.toString(), r);
+            }
+          } else if (som < res.length) {
+            r = new mr(res.substr(0, som));
+            con.c.emit(r.responseTo.toString(), r);
+            return con.r(res.substr(som, res.length - som));
+          } else {
+            return s.bb = res;
+          }
+        }
       }
-    });
+    };
+    return con.c.addListener('data', con.r);
   };
   con.prototype.close = function() {
     if (con.c) {
@@ -129,27 +120,21 @@ con = function() {
   };
   con.prototype.send = function(cmd) {
     var nc;
-    //console.log(con.c);
+    console.log(cmd);
     try {
       return con.c.write(cmd, 'binary');
     } catch (e) {
       if (con.c._connecting) {
-        //console.log('waiting to connect');
         con.msg.push(cmd);
-        con.c.addListener('connected', __bind(function(v) {
+        return con.c.addListener('connected', __bind(function() {
           var _results;
-          //console.log('finished connecting!');
-          if (v) {
-            _results = [];
-            while (con.msg.length > 0) {
-              //console.log(con.msg);
-              _results.push(con.c.write(con.msg.shift(), 'binary'));
-            }
-            return _results;
+          _results = [];
+          while (con.msg.length > 0) {
+            _results.push(con.c.write(con.msg.shift(), 'binary'));
           }
+          return _results;
         }, this));
-      }
-      if (con.c.readyState !== 'open' && con.recon) {
+      } else if (con.recon) {
         con.msg.push(cmd);
         if (con.c.currently_reconnecting === null) {
           con.c.currently_reconnecting = true;
@@ -170,102 +155,144 @@ con = function() {
           }, this));
         }
       } else {
-        return //console.log('readyState not defined');
+        return console.log('Error: readyState not defined');
       }
     }
   };
   con.prototype.log = function(info) {
-    return //console.log('log', " - " + info);
+    return console.log('log', " - " + info);
   };
   con.prototype.leg = function(error) {
-    return this.emit('log', " - Error: " + error.toString().replace(/error:/i, ''));
+    return console.log(" - Error: " + error.toString().replace(/error:/i, ''));
   };
   return con;
 }();
 mongous = function() {
   __extends(mongous, con);
   function mongous(s) {
-    var p;
+    var e, p;
+    e = false;
     if (con.c === null) {
       this.open();
     }
     if (s.length >= 80) {
-      //console.log("Database name and collection exceed 80 character limit.");
+      console.log("Error: '" + s + "' - Database name and collection exceed 80 character limit.");
+      e = true;
     }
     p = s.search(/\./);
     if (p <= 0) {
-      //console.log("Database.collection nomenclature required");
+      console.log("Error: '" + s + "' - Database.collection nomenclature required");
+      e = true;
     }
     this.db = s.slice(0, p);
     this.col = s.substr(p + 1);
     if (this.col.search(/\$/) >= 0) {
       if (this.col.search(/\$cmd/i) < 0) {
-        //console.log(" cannot use '$' unless for commands.");
+        console.log("Error: '" + s + "' - cannot use '$' unless for commands.");
+        e = true;
       } else {
-        //console.log("silent.");
+        console.log("Error: '" + s + "' - silent.");
+        e = true;
       }
     } else if (this.col.search(/^[a-z|\_]/i) < 0) {
-      //console.log("Collection must start with a letter or an underscore.");
+      console.log("Error: '" + s + "' - Collection must start with a letter or an underscore.");
+      e = true;
+    }
+    if (e) {
+      this.db = '!';
+      this.col = '$';
     }
     this;
   }
   mongous.prototype.open = function() {
     return mongous.__super__.open.apply(this, arguments);
   };
-  mongous.prototype.send = function(cmd) {
-    return mongous.__super__.send.call(this, com.binary(cmd));
+  mongous.prototype.send = function(cmd, op, id) {
+    if (cmd.collectionName === '!.$') {
+      return false;
+    } else {
+      id || (id = this.id());
+      return mongous.__super__.send.call(this, com.binary(cmd, op, id));
+    }
   };
   mongous.prototype.update = function() {
-    var a, b, c, cmd, m, u, z, _i;
-    a = arguments[0], b = arguments[1], c = 4 <= arguments.length ? __slice.call(arguments, 2, _i = arguments.length - 1) : (_i = 2, []), z = arguments[_i++];
+    var a, b, c, cmd, m, u;
+    a = arguments[0], b = arguments[1], c = 3 <= arguments.length ? __slice.call(arguments, 2) : [];
     if (!a || !b) {
-      this.leg("Query and document required.");
+      console.log("Query and document required.");
     }
-    /* to do: check namespaces #*/
-    if (typeof z !== 'function') {
-      c[0] = z;
-    }
-    if (c[0]) {
-      m = c[0].multi ? 1 : 0;
-      u = c[0].upsert ? 1 : 0;
+    if (c[0] || c.length === 2) {
+      if (c[0] instanceof Object) {
+        m = c[0].multi ? 1 : 0;
+        u = c[0].upsert ? 1 : 0;
+      } else {
+        u = c[0] ? 1 : 0;
+        m = c[1] ? 1 : 0;
+      }
     } else {
-      u = m = 0;
+      m = u = 0;
     }
-    //console.log('FLAGS:' + parseInt(m.toString() + u.toString()));
     cmd = {
-      op: 2001,
       collectionName: this.db + '.' + this.col,
       flags: parseInt(m.toString() + u.toString()),
       spec: a,
       document: b
     };
-    //console.log(cmd);
-    return this.send(cmd);
+    return this.send(cmd, 2001);
   };
-  mongous.prototype.query = function(a) {
-    var cmd;
-    a = a === null ? {} : a;
-    cmd = {
-      op: 2004,
-      collectionName: this.db + '.' + this.col,
-      numberToSkip: 0,
-      numberToReturn: -1,
-      query: a,
-      returnFieldSelector: null
+  mongous.prototype.find = function() {
+    var a, cmd, f, fn, i, id, num, o, obj, q, _i, _len;
+    a = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+    if (!a) {
+      this.leg("Callback required");
+    }
+    obj = [];
+    num = [];
+    for (_i = 0, _len = a.length; _i < _len; _i++) {
+      i = a[_i];
+      if (i instanceof Function) {
+        fn = i;
+      } else if (i instanceof Object) {
+        obj.push(i);
+      } else if (!isNaN(i)) {
+        num.push(i);
+      }
+    }
+    q = obj[0] ? obj[0] : {};
+    f = obj[1] ? obj[1] : null;
+    o = obj[2] ? obj[2] : {};
+    o = {
+      lim: o.lim !== void 0 ? o.lim : num[0] ? num[0] : void 0,
+      skip: o.skip !== void 0 ? o.skip : num[1] ? num[1] : 0
     };
-    return this.send(cmd);
+    cmd = {
+      collectionName: this.db + '.' + this.col,
+      numberToSkip: o.skip,
+      numberToReturn: o.lim,
+      query: q,
+      returnFieldSelector: f
+    };
+    id = this.id();
+    con.c.addListener(id.toString(), __bind(function(msg) {
+      if (fn) {
+        fn(msg);
+      }
+      return con.c.removeListener(id.toString(), con.c.listeners(id.toString())[0]);
+    }, this));
+    return this.send(cmd, 2004, id);
   };
-  mongous.prototype.insert = function(a) {
-    var cmd;
+  mongous.prototype.insert = function() {
+    var a, cmd, docs;
+    a = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
+    docs = a[0] instanceof Array ? a[0] : a;
     cmd = {
-      op: 2002,
       collectionName: this.db + '.' + this.col,
-      documents: a
+      documents: docs
     };
-    return this.send(cmd);
+    return this.send(cmd, 2002);
   };
   mongous.prototype.save = function(a) {
-    return //console.log('save');
+    return this.update(a, a, 1);
   };
   mongous.prototype.log = function(info) {
     return this.emit('log', " - " + info);
@@ -273,23 +300,15 @@ mongous = function() {
   mongous.prototype.leg = function(error) {
     return this.emit('log', " - Error: " + error.toString().replace(/error:/i, ''));
   };
+  mongous.prototype.id = function() {
+    return Math.round(Math.exp(Math.random() * Math.log(100000)));
+  };
   return mongous;
 }();
-db = function(s) {
-  return new mongous(s);
-};
-for (i = 0; i <= 100; i++) {
-  for (j = 0; j < 1000; j++) {
-	 console.log(i + ": " + j);
-    db('angry.mob' + i).update({
-      foo: j
-    }, {
-      $set: {
-        bar: j + 1
-      }
-    }, {
-      upsert: true,
-      multi: true
-    });
+db = function() {
+  function db(s) {
+    return new mongous(s);
   }
-}
+  return db;
+}();
+exports.Mongous = db;
