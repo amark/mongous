@@ -240,6 +240,24 @@ mongous = function() {
     };
     return this.send(cmd, 2001);
   };
+  mongous.prototype.remove = function() {
+    var a, b, cmd, m, r = 0; // r=reserved & must be 0 (as per the spec)
+    a = arguments[0], b = 2 <= arguments.length ? __slice.call(arguments, 1) : [];
+    if (!a) {
+      console.log("Query required.");
+    }
+    if (b[0] || b.length === 1) {
+      m = b[0] ? 1 : 0; // atomic
+    } else {
+      m = 0;
+    }
+    cmd = {
+      collectionName: this.db + '.' + this.col,
+      flags: parseInt(m.toString() + r.toString()),
+      spec: a
+    };
+    return this.send(cmd, 2006);
+  };
   mongous.prototype.find = function() {
     var a, cmd, f, fn, i, id, num, o, obj, q, _i, _len;
     a = 1 <= arguments.length ? __slice.call(arguments, 0) : [];

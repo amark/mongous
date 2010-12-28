@@ -25,6 +25,12 @@ update =  function(c) {
   return command_string + BinaryParser.fromInt(c.flags) + BSON.serialize(c.spec) + BSON.serialize(c.document, false);
 };
 
+remove =  function(c) {
+  // Generate the command string
+  var command_string = BinaryParser.fromInt(0) + BinaryParser.encode_cstring(c.collectionName);
+  return command_string + BinaryParser.fromInt(c.flags) + BSON.serialize(c.spec);
+};
+
 query = function(c) {
   // Generate the command string
   var command_string = BinaryParser.fromInt(c.queryOptions) + BinaryParser.encode_cstring(c.collectionName);
@@ -43,9 +49,9 @@ query = function(c) {
 };
 
 Commands.binary = function(cmd, op, id) {
-  // Get the command data structure
-  var command = '';
-  switch(op) {
+	// Get the command data structure
+	var command = '';
+	switch(op) {
 		case 2001: 
 			command = update(cmd);
 		break;
@@ -55,24 +61,27 @@ Commands.binary = function(cmd, op, id) {
 		case 2004: 
 			command = query(cmd);
 		break;
-  }
-  // Total Size of command
-  var totalSize = 4*4 + command.length;
-  // Create the command with the standard header file
-  //var hd = BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(id) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op);
-  //var s = hd + command;
-  //console.log(s.toString());
-  return BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(id) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op) + command;
+		case 2006:
+			command = query(cmd);
+		break;
+	}
+	// Total Size of command
+	var totalSize = 4*4 + command.length;
+	// Create the command with the standard header file
+	//var hd = BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(id) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op);
+	//var s = hd + command;
+	//console.log(s.toString());
+	return BinaryParser.fromInt(totalSize) + BinaryParser.fromInt(id) + BinaryParser.fromInt(0) + BinaryParser.fromInt(op) + command;
 };
 
 // OpCodes
 Commands.OP_REPLY = 1;
 Commands.OP_MSG = 1000;
 Commands.OP_UPDATE = 2001;
-Commands.OP_INSERT =	2002;
+Commands.OP_INSERT = 2002;
 Commands.OP_GET_BY_OID = 2003;
 Commands.OP_QUERY = 2004;
 Commands.OP_GET_MORE = 2005;
-Commands.OP_DELETE =	2006;
-Commands.OP_KILL_CURSORS =	2007;
+Commands.OP_DELETE = 2006;
+Commands.OP_KILL_CURSORS = 2007;
 Commands.documents = [];
