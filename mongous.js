@@ -173,6 +173,7 @@ con = function() {
 mongous = function() {
   __extends(mongous, con);
   function mongous(s) { // checks for a valid db and collection name
+	 if(!s) return false;
     var e, p;
     e = false;
     if (con.c === null) { // if we haven't connected yet, then connect

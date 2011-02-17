@@ -1,0 +1,8 @@
+{ "name": "mongous"
+, "version": "0.1.0"
+, "author": "Mark Nadal"
+, "description": "Dead simple MongoDB driver"
+, "homepage": "http://github.com/amark/mongous"
+, "engines": ["node >= 0.2.2"]
+, "main": "mongous"
+}

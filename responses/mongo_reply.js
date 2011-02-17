@@ -26,6 +26,8 @@ var MongoReply = exports.MongoReply = function(binary_reply) {
   var low_bits = Integer.fromInt(BinaryParser.toInt(binary_reply.substr(index, 4)));
   var high_bits = Integer.fromInt(BinaryParser.toInt(binary_reply.substr(index + 4, 4)));
   this.cursorId = new Long(low_bits, high_bits);
+  if (this.cursorId.greaterThan(Long.fromInt(0)))
+    this.more = true
   index = index + 8;
   // Unpack the starting from
   this.startingFrom = BinaryParser.toInt(binary_reply.substr(index, 4));

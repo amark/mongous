@@ -1,6 +1,7 @@
 Mongous
 ==========
 Mongous, for hu*mongous*, is a dead simple and blazing fast MongoDB driver that uses a jQuery like syntax.
+Note: Due to a small unfixed bug with the find() funciton, please explicitly call db('').open();
 
 ### How it works
 
