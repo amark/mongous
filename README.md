@@ -1,12 +1,16 @@
 Mongous
 ==========
-Mongous, for hu*mongous*, is a dead simple and blazing fast MongoDB driver that uses a jQuery like syntax.
-Note: Due to a small unfixed bug with the find() funciton, please explicitly call db('').open();
+Mongous, for hu*mongous*, is a simple and blazing fast MongoDB driver that uses a jQuery like syntax.
 
 ### How it works
 
-	var db = require(PATH_TO_MONGOUS +'/mongous').Mongous;
-	db('hello.world').save({foo: 'bar'});
+	var $ = require("mongous").Mongous;
+
+	$("database.collection").save({my:"value"});
+
+	$("database.collection").find({},function(r){
+		console.log(r);
+	});
 
 Done. App development has never felt as close to the shell as this! Making it a breeze to grab'n'store anything anywhere in your code without the nasty hassle of connections, collections, and cascading callbacks.
 
@@ -78,5 +82,11 @@ Done. App development has never felt as close to the shell as this! Making it a 
 			reply.documents skips the first 2 documents and is the next 3 documents.
 		- <code>db('blog.users').find(function(reply){ }, {age: 25}, {}, {limit: 5, skip: 2})</code><br/>
 			is the same as the previous example except only of doucments with the age of 25.
-
+- **Operations** <code>db('blog.$cmd').find(command,1)</code>
+	- command
+		is the database operation command you want to perform.
+	- Example
+		<code>db('blog.$cmd').find({drop:"users"},1)</code><br/>
+		drops the users collection, deleting it.
+			
 Mongous is a reduction ('less is more') of node-mongodb-driver by Christian Kvalheim.

@@ -1,13 +1,22 @@
-var BinaryParser = require('./binary_parser').BinaryParser,
-  OrderedHash = require('./collections').OrderedHash,
-  Integer = require('../goog/math/integer').Integer,
-  Long = require('../goog/math/long').Long,
-  Buffer = require('buffer').Buffer;
+/**
+ * Module dependencies.
+ */
+var BinaryParser = require('./binary_parser').BinaryParser
+  , Long = require('../goog/math/long').Long
+  , Timestamp = require('./timestamp').Timestamp
+  , ObjectID = require('./objectid').ObjectID
+  , Binary = require('./binary').Binary
+  //, debug = require('util').debug
+  //, inspect = require('util').inspect
+  //, inherits = require('util').inherits
+  , ieee754 = require('./float_parser')
+  , binaryutils = require('./binary_utils');  
 
-// Alias a string function
-var chr = String.fromCharCode;
+/**
+ * BSON constructor.
+ */
 
-var BSON = exports.BSON = function(){};
+function BSON () {};
 
 // BSON MAX VALUES
 BSON.BSON_INT32_MAX = 2147483648;
@@ -30,590 +39,1808 @@ BSON.BSON_DATA_TIMESTAMP = 17;
 BSON.BSON_DATA_LONG = 18;
 
 // BSON BINARY DATA SUBTYPES
+BSON.BSON_BINARY_SUBTYPE_DEFAULT = 0;
 BSON.BSON_BINARY_SUBTYPE_FUNCTION = 1;
 BSON.BSON_BINARY_SUBTYPE_BYTE_ARRAY = 2;
 BSON.BSON_BINARY_SUBTYPE_UUID = 3;
 BSON.BSON_BINARY_SUBTYPE_MD5 = 4;
 BSON.BSON_BINARY_SUBTYPE_USER_DEFINED = 128;
 
-BSON.serialize = function(data, checkKeys) {
-  return BSON.encodeValue('', null, data, true, checkKeys == null ? false : checkKeys);
+/**
+ * Serialize `data` as BSON.
+ *
+ * @param {TODO} data
+ * @param {Bool|null} checkKeys - TODO
+ * @return {TODO}
+ */
+
+// Does not do recursion, uses a stack to handle depth
+// Experiment for performance
+BSON.calculateObjectSize = function(object) {
+  var totalLength = (4 + 1);
+  var done = false;
+  var stack = [];
+  var currentObject = object;
+  var keys = null;
+  // Controls the flow
+  var finished = false;
+  
+  while(!done) {
+    // Only get keys if we have a new object
+    keys = keys == null ? Object.keys(currentObject) : keys;    
+
+    // Let's process all the elements
+    while(keys.length > 0) {
+      var name = keys.shift();
+      var value = currentObject[name];
+      
+      if(value == null) {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (1);
+      } else if(Array.isArray(value)) {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (4 + 1) + 1;
+        stack.push({keys:keys, object:currentObject});
+        currentObject = value;
+        keys = Object.keys(value)
+        break;        
+      } else if(typeof value == 'number' && value === parseInt(value, 10)) {        
+        if(value >= BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN) {                
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+        } else {                
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (4 + 1);
+        }
+      } else if(typeof value == 'number' || toString.call(value) === '[object Number]') {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+      } else if(typeof value == 'boolean' || toString.call(value) === '[object Boolean]') {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (1 + 1);
+      } else if(value instanceof Date) {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+      } else if(typeof value == 'string') {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (Buffer.byteLength(value, 'utf8') + 4 + 1 + 1);
+      } else if(value instanceof ObjectID || (value.id && value.toHexString)) {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (12 + 1);
+      } else if(value instanceof Binary) {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (value.position + 1 + 4 + 1);
+      } else if(value instanceof Long) {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+      } else if(value instanceof Timestamp) {
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+      } else if(value instanceof RegExp || toString.call(value) === '[object RegExp]') {
+        // Keep list of valid options
+        var options_array = [];
+        var str = value.toString();
+        var clean_regexp = str.match(/\/.*\//, '');
+        clean_regexp = clean_regexp[0].substring(1, clean_regexp[0].length - 1);
+        var options = str.substr(clean_regexp.length + 2);
+
+        // Extract all options that are legal and sort them alphabetically
+        for(var index = 0, len = options.length; index < len; ++index) {
+          var chr = options.charAt(index);
+          if('i' == chr || 'm' == chr || 'x' == chr) {
+            options_array.push(chr);
+          }
+        }
+
+        // Calculate the total length
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (Buffer.byteLength(clean_regexp) + 1 + options_array.length + 1 + 1);
+      } else if(value instanceof DBRef) {
+        var ordered_values = {
+            '$ref': value.namespace
+          , '$id' : value.oid
+        };
+        
+        if(null != value.db) {
+          ordered_values['$db'] = value.db;
+        }
+        
+        // Calculate the object
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (4 + 1 + 1);
+        stack.push({keys:keys, object:currentObject});
+        currentObject = ordered_values;
+        keys = Object.keys(ordered_values)
+        break;
+      } else if(value instanceof Code) {
+        // Calculate the length of the code string        
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + 4 + (value.code.toString().length + 1) + 4;
+        totalLength += (4 + 1 + 1);
+        // Push the current object
+        stack.push({keys:keys, object:currentObject});
+        currentObject = value.scope;
+        keys = Object.keys(value.scope)
+        break;        
+      } else if(typeof value == 'object') {
+        // Calculate the object
+        totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (4 + 1 + 1);                
+        // Otherwise handle keys
+        stack.push({keys:keys, object:currentObject});
+        currentObject = value;
+        keys = Object.keys(value)
+        break;
+      }
+      
+      // Finished up the object
+      if(keys.length == 0) {
+        finished = true;
+      }
+    }
+    
+    // If the stack is empty let's finish up, otherwise pop the previous object and
+    // continue
+    if(stack.length == 0) {
+      done = true;
+    } else if(finished || keys.length == 0){
+      currentObjectStored = stack.pop();
+      currentObject = currentObjectStored.object;
+      keys = currentObjectStored.keys;      
+      finished = keys.length == 0 ? true: false;
+    }
+  }
+
+  return totalLength;
+}
+
+BSON.encodeObjectNoRec = function(buffer, object, checkKeys, startIndex) {
+  var index = startIndex == null ? 0 : startIndex;
+  var done = false;
+  var stack = [];
+  var currentObject = object;
+  var keys = null;
+  var size = 0;
+  var objectIndex = 0;
+  var totalNumberOfObjects = 0;
+  // Special index for Code objects
+  var codeStartIndex = 0;
+  // Signals if we are finished up
+  var finished = false;  
+
+  // Current parsing object state
+  var currentObjectStored = {object: object, index: index, endIndex: 0, keys: Object.keys(object)};  
+	// Adjust the index
+	index = index + 4;
+
+  // While meeting
+  while(!done) {
+    // While current object has keys
+    while(currentObjectStored.keys.length > 0) {
+      var name = currentObjectStored.keys.shift();
+      var value = currentObjectStored.object[name];
+
+      // If we got a key check for valid type
+      if(name != null && checkKeys ==  true && (name != '$db' && name != '$ref' && name != '$id')) {
+        BSON.checkKey(name);        
+      }
+      
+      if(value == null) {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_NULL;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }        
+      } else if(typeof value == 'string') {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_STRING;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+
+        // Calculate size
+        size = Buffer.byteLength(value) + 1;
+        // Write the size of the string to buffer
+        buffer[index + 3] = (size >> 24) & 0xff;     
+        buffer[index + 2] = (size >> 16) & 0xff;
+        buffer[index + 1] = (size >> 8) & 0xff;
+        buffer[index] = size & 0xff;
+        // Ajust the index
+        index = index + 4;
+        // Write the string
+        buffer.write(value, index, 'utf8');
+        // Update index
+        index = index + size - 1;
+        // Write zero
+        buffer[index++] = 0;
+      } else if(typeof value == 'number' && value === parseInt(value, 10)) {
+        // Write the type
+        buffer[index++] = value >= BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN ? BSON.BSON_DATA_LONG : BSON.BSON_DATA_INT;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+  
+        if(value >= BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN) { 
+          // Write the number
+          var long = Long.fromNumber(value);
+          binaryutils.encodeIntInPlace(long.getLowBits(), buffer, index);
+          binaryutils.encodeIntInPlace(long.getHighBits(), buffer, index + 4);
+          index += 8;
+        } else {                
+          // Write the int value to the buffer
+          buffer[index + 3] = (value >> 24) & 0xff;      
+          buffer[index + 2] = (value >> 16) & 0xff;
+          buffer[index + 1] = (value >> 8) & 0xff;
+          buffer[index] = value & 0xff;
+          // Ajust the index
+          index = index + 4;          
+        }
+      } else if(typeof value == 'number' || toString.call(value) === '[object Number]') {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_NUMBER;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+        
+        // Write float
+        ieee754.writeIEEE754(buffer, value, index, 'little', 52, 8);
+        // Ajust index
+        index = index + 8;
+      } else if(typeof value == 'boolean' || toString.call(value) === '[object Boolean]') {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_BOOLEAN;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+        
+        buffer[index++] = value ? 1 : 0;
+      } else if(value instanceof Date || toString.call(value) === '[object Date]') {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_DATE;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+  
+        // Write the date
+        var dateInMilis = Long.fromNumber(value.getTime());
+        binaryutils.encodeIntInPlace(dateInMilis.getLowBits(), buffer, index);
+        binaryutils.encodeIntInPlace(dateInMilis.getHighBits(), buffer, index + 4);        
+        // Ajust index
+        index = index + 8;        
+      } else if(value instanceof RegExp || toString.call(value) === '[object RegExp]') {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_REGEXP;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+        
+        // Keep list of valid options
+        var options_array = [];
+        var str = value.toString();
+        var clean_regexp = str.match(/\/.*\//, '');
+        clean_regexp = clean_regexp[0].substring(1, clean_regexp[0].length - 1);
+        // Get options from the regular expression
+        var options = str.substr(clean_regexp.length + 2);
+  
+        // Write the regexp to the buffer
+        buffer.write(clean_regexp, index, 'utf8');
+        // Update the index
+        index = index + Buffer.byteLength(clean_regexp) + 1;
+        // Write ending cstring zero
+        buffer[index - 1] = 0;          
+        
+        // Extract all options that are legal and sort them alphabetically
+        for(var i = 0, len = options.length; i < len; ++i) {
+          var chr = options[i];          
+          if('i' == chr || 'm' == chr || 'x' == chr) {
+            buffer[index++] = chr.charCodeAt(0)
+          }
+        }
+  
+        // Write ending cstring zero
+        buffer[index++] = 0;
+      } else if(value instanceof Long) {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_LONG;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+  
+        // Write the date
+        binaryutils.encodeIntInPlace(value.getLowBits(), buffer, index);
+        binaryutils.encodeIntInPlace(value.getHighBits(), buffer, index + 4);        
+        // Ajust index
+        index = index + 8;        
+      } else if(value instanceof Timestamp) {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_TIMESTAMP;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+  
+        // Write the date
+        binaryutils.encodeIntInPlace(value.getLowBits(), buffer, index);
+        binaryutils.encodeIntInPlace(value.getHighBits(), buffer, index + 4);        
+        // Ajust index
+        index = index + 8;        
+      } else if(value instanceof Binary) {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_BINARY;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+
+        // Extract the buffer
+        var data = value.value(true);        
+        // Calculate size
+        size = data.length;
+        // Write the size of the string to buffer
+        buffer[index + 3] = (size >> 24) & 0xff;     
+        buffer[index + 2] = (size >> 16) & 0xff;
+        buffer[index + 1] = (size >> 8) & 0xff;
+        buffer[index] = size & 0xff;
+        // Update the index
+        index = index + 4;
+        // Write the subtype to the buffer
+        buffer[index++] = value.sub_type;
+        // Write the data to the object
+        data.copy(buffer, index, 0, data.length);
+        // Ajust index
+        index = index + data.length;
+      } else if(value instanceof ObjectID) {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_OID;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+        
+        // Write objectid
+        buffer.write(value.id, index, 'binary');
+        // Ajust index
+        index = index + 12;
+      } else if(value instanceof DBRef) {
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_OBJECT;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+          
+        var ordered_values = {
+            '$ref': value.namespace
+          , '$id' : value.oid
+        };
+          
+        if(null != value.db) {
+          ordered_values['$db'] = value.db;
+        }
+        
+        // Push object on stack
+        stack.push(currentObjectStored);          
+        // Set the new object
+        currentObjectStored = {object: ordered_values, index: index, endIndex: 0, keys: Object.keys(ordered_values)};
+        // Adjust index
+        index = index + 4;
+      } else if(value instanceof Code) {
+        // Calculate the scope size
+        var scopeSize = BSON.calculateObjectSize(value.scope);
+        // Write the type
+        buffer[index++] = BSON.BSON_DATA_CODE_W_SCOPE;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+        
+        // Convert value to string
+        var codeString = value.code.toString();        
+        var codeStringLength = Buffer.byteLength(codeString);
+        // Calculate size
+        size = 4 + codeStringLength + 1 + 4 + scopeSize;        
+        // Write the size of the string to buffer
+        buffer[index + 3] = (size >> 24) & 0xff;     
+        buffer[index + 2] = (size >> 16) & 0xff;
+        buffer[index + 1] = (size >> 8) & 0xff;
+        buffer[index] = size & 0xff;
+        // Update index        
+        index = index + 4;
+
+        // Calculate codestring length
+        size = codeStringLength + 1;
+        // Write the size of the string to buffer
+        buffer[index + 3] = (size >> 24) & 0xff;     
+        buffer[index + 2] = (size >> 16) & 0xff;
+        buffer[index + 1] = (size >> 8) & 0xff;
+        buffer[index] = size & 0xff;
+        // Update index        
+        index = index + 4;
+
+        // Write the string
+        buffer.write(codeString, index, 'utf8');
+        // Update index
+        index = index + codeStringLength;
+        // Add final 0 for cstring        
+        buffer[index++] = 0;
+
+        // Push the scope object
+        stack.push(currentObjectStored);          
+        // Set the new object
+        currentObjectStored = {object: value.scope, index: index, endIndex: 0, keys: Object.keys(value.scope)};
+        // Adjust index
+        index = index + 4;        
+      } else if(typeof value == 'object') {
+        // Write the type of either Array or object
+        buffer[index++] = Array.isArray(value) ? BSON.BSON_DATA_ARRAY : BSON.BSON_DATA_OBJECT;
+        // Write the name
+        if(name != null) {
+          index = index + buffer.write(name, index, 'utf8') + 1;
+          buffer[index - 1] = 0;          
+        }
+
+        // Push object on stack
+        stack.push(currentObjectStored);          
+        // Set the new object
+        currentObjectStored = {object: value, index: index, endIndex: 0, keys: Object.keys(value)};
+        // Adjust index
+        index = index + 4;
+      }      
+      
+      if(currentObjectStored.keys.length == 0) {
+        // Save end index
+        currentObjectStored.endIndex = index;
+        
+        // If we have a stack pop and finish up processing
+        if(stack.length > 0) {  
+          // Write the current object size out
+          // Pack the size of the total buffer length
+          size = currentObjectStored.endIndex - currentObjectStored.index + 1;          
+          // Write the size of the string to buffer
+          buffer[currentObjectStored.index + 3] = (size >> 24) & 0xff;     
+          buffer[currentObjectStored.index + 2] = (size >> 16) & 0xff;
+          buffer[currentObjectStored.index + 1] = (size >> 8) & 0xff;
+          buffer[currentObjectStored.index] = size & 0xff;          
+          // Adjust and set null last parameter
+          buffer[index++] = 0;
+          
+          // Pop off the stored object
+          currentObjectStored = stack.pop();            
+        }
+      }
+    }
+    
+    if(stack.length > 0) {          
+      // Write the current object size out
+      // Pack the size of the total buffer length
+      size = stack.length >= 1 ? (index - currentObjectStored.index + 1) :
+        currentObjectStored.endIndex - currentObjectStored.index + 16;      
+      // Write the size of the string to buffer
+      buffer[currentObjectStored.index + 3] = (size >> 24) & 0xff;     
+      buffer[currentObjectStored.index + 2] = (size >> 16) & 0xff;
+      buffer[currentObjectStored.index + 1] = (size >> 8) & 0xff;
+      buffer[currentObjectStored.index] = size & 0xff;   
+      // Adjust and set null last parameter
+      buffer[index++] = 0;      
+      // Pop off the stored object
+      currentObjectStored = stack.pop();            
+    } else {          
+      // Pack the size of the total buffer length
+      size = buffer.length;
+      // Write the size of the string to buffer
+      buffer[3] = (size >> 24) & 0xff;     
+      buffer[2] = (size >> 16) & 0xff;
+      buffer[1] = (size >> 8) & 0xff;
+      buffer[0] = size & 0xff;  
+      // Set last buffer field to 0
+      buffer[buffer.length - 1] = 0;      
+      // return buffer;      
+      done = true;
+      break;
+    }
+  }
+  
+  // If we passed in an index
+  if(startIndex != null) return index;  
+  // Otherwise buffer
+  return buffer;
+}
+
+// In place serialization with index to starting point of serialization
+BSON.serializeWithBufferAndIndex = function serializeWithBufferAndIndex(object, checkKeys, buffer, startIndex) {
+  if(typeof object == 'object' || object instanceof Object) {    
+    // Encode the object using single allocated buffer and no recursion
+    var index = startIndex == null ? 0 : startIndex;
+    var done = false;
+    var stack = [];
+    var currentObject = object;
+    var keys = null;
+    var size = 0;
+    var objectIndex = 0;
+    var totalNumberOfObjects = 0;
+    // Special index for Code objects
+    var codeStartIndex = 0;
+    // Signals if we are finished up
+    var finished = false;  
+
+    // Current parsing object state
+    var currentObjectStored = {object: object, index: index, endIndex: 0, keys: Object.keys(object)};  
+  	// Adjust the index
+  	index = index + 4;
+
+    // While meeting
+    while(!done) {
+      // While current object has keys
+      while(currentObjectStored.keys.length > 0) {
+        var name = currentObjectStored.keys.shift();
+        var value = currentObjectStored.object[name];
+
+        // If we got a key check for valid type
+        if(name != null && checkKeys ==  true && (name != '$db' && name != '$ref' && name != '$id')) {
+          BSON.checkKey(name);        
+        }
+
+        if(value == null) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_NULL;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }        
+        } else if(typeof value == 'string') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_STRING;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Calculate size
+          size = Buffer.byteLength(value) + 1;
+          // Write the size of the string to buffer
+          buffer[index + 3] = (size >> 24) & 0xff;     
+          buffer[index + 2] = (size >> 16) & 0xff;
+          buffer[index + 1] = (size >> 8) & 0xff;
+          buffer[index] = size & 0xff;
+          // Ajust the index
+          index = index + 4;
+          // Write the string
+          buffer.write(value, index, 'utf8');
+          // Update index
+          index = index + size - 1;
+          // Write zero
+          buffer[index++] = 0;
+        } else if(typeof value == 'number' && value === parseInt(value, 10)) {
+          // Write the type
+          buffer[index++] = value >= BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN ? BSON.BSON_DATA_LONG : BSON.BSON_DATA_INT;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          if(value >= BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN) { 
+            // Write the number
+            var long = Long.fromNumber(value);
+            binaryutils.encodeIntInPlace(long.getLowBits(), buffer, index);
+            binaryutils.encodeIntInPlace(long.getHighBits(), buffer, index + 4);
+            index += 8;
+          } else {                
+            // Write the int value to the buffer
+            buffer[index + 3] = (value >> 24) & 0xff;      
+            buffer[index + 2] = (value >> 16) & 0xff;
+            buffer[index + 1] = (value >> 8) & 0xff;
+            buffer[index] = value & 0xff;
+            // Ajust the index
+            index = index + 4;          
+          }
+        } else if(typeof value == 'number' || toString.call(value) === '[object Number]') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_NUMBER;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write float
+          ieee754.writeIEEE754(buffer, value, index, 'little', 52, 8);
+          // Ajust index
+          index = index + 8;
+        } else if(typeof value == 'boolean' || toString.call(value) === '[object Boolean]') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_BOOLEAN;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          buffer[index++] = value ? 1 : 0;
+        } else if(value instanceof Date || toString.call(value) === '[object Date]') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_DATE;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write the date
+          var dateInMilis = Long.fromNumber(value.getTime());
+          binaryutils.encodeIntInPlace(dateInMilis.getLowBits(), buffer, index);
+          binaryutils.encodeIntInPlace(dateInMilis.getHighBits(), buffer, index + 4);        
+          // Ajust index
+          index = index + 8;        
+        } else if(value instanceof RegExp || toString.call(value) === '[object RegExp]') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_REGEXP;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Keep list of valid options
+          var options_array = [];
+          var str = value.toString();
+          var clean_regexp = str.match(/\/.*\//, '');
+          clean_regexp = clean_regexp[0].substring(1, clean_regexp[0].length - 1);
+          // Get options from the regular expression
+          var options = str.substr(clean_regexp.length + 2);
+
+          // Write the regexp to the buffer
+          buffer.write(clean_regexp, index, 'utf8');
+          // Update the index
+          index = index + Buffer.byteLength(clean_regexp) + 1;
+          // Write ending cstring zero
+          buffer[index - 1] = 0;          
+
+          // Extract all options that are legal and sort them alphabetically
+          for(var i = 0, len = options.length; i < len; ++i) {
+            var chr = options[i];          
+            if('i' == chr || 'm' == chr || 'x' == chr) {
+              buffer[index++] = chr.charCodeAt(0)
+            }
+          }
+
+          // Write ending cstring zero
+          buffer[index++] = 0;
+        } else if(value instanceof Long) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_LONG;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write the date
+          binaryutils.encodeIntInPlace(value.getLowBits(), buffer, index);
+          binaryutils.encodeIntInPlace(value.getHighBits(), buffer, index + 4);        
+          // Ajust index
+          index = index + 8;        
+        } else if(value instanceof Timestamp) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_TIMESTAMP;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write the date
+          binaryutils.encodeIntInPlace(value.getLowBits(), buffer, index);
+          binaryutils.encodeIntInPlace(value.getHighBits(), buffer, index + 4);        
+          // Ajust index
+          index = index + 8;        
+        } else if(value instanceof Binary) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_BINARY;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Extract the buffer
+          var data = value.value(true);        
+          // Calculate size
+          size = data.length;
+          // Write the size of the string to buffer
+          buffer[index + 3] = (size >> 24) & 0xff;     
+          buffer[index + 2] = (size >> 16) & 0xff;
+          buffer[index + 1] = (size >> 8) & 0xff;
+          buffer[index] = size & 0xff;
+          // Update the index
+          index = index + 4;
+          // Write the subtype to the buffer
+          buffer[index++] = value.sub_type;
+          // Write the data to the object
+          data.copy(buffer, index, 0, data.length);
+          // Ajust index
+          index = index + data.length;
+        } else if(value instanceof ObjectID) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_OID;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write objectid
+          buffer.write(value.id, index, 'binary');
+          // Ajust index
+          index = index + 12;
+        } else if(value instanceof DBRef) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_OBJECT;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          var ordered_values = {
+              '$ref': value.namespace
+            , '$id' : value.oid
+          };
+
+          if(null != value.db) {
+            ordered_values['$db'] = value.db;
+          }
+
+          // Push object on stack
+          stack.push(currentObjectStored);          
+          // Set the new object
+          currentObjectStored = {object: ordered_values, index: index, endIndex: 0, keys: Object.keys(ordered_values)};
+          // Adjust index
+          index = index + 4;
+        } else if(value instanceof Code) {
+          // Calculate the scope size
+          var scopeSize = BSON.calculateObjectSize(value.scope);
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_CODE_W_SCOPE;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Convert value to string
+          var codeString = value.code.toString();        
+          var codeStringLength = Buffer.byteLength(codeString);
+          // Calculate size
+          size = 4 + codeStringLength + 1 + 4 + scopeSize;        
+          // Write the size of the string to buffer
+          buffer[index + 3] = (size >> 24) & 0xff;     
+          buffer[index + 2] = (size >> 16) & 0xff;
+          buffer[index + 1] = (size >> 8) & 0xff;
+          buffer[index] = size & 0xff;
+          // Update index        
+          index = index + 4;
+
+          // Calculate codestring length
+          size = codeStringLength + 1;
+          // Write the size of the string to buffer
+          buffer[index + 3] = (size >> 24) & 0xff;     
+          buffer[index + 2] = (size >> 16) & 0xff;
+          buffer[index + 1] = (size >> 8) & 0xff;
+          buffer[index] = size & 0xff;
+          // Update index        
+          index = index + 4;
+
+          // Write the string
+          buffer.write(codeString, index, 'utf8');
+          // Update index
+          index = index + codeStringLength;
+          // Add final 0 for cstring        
+          buffer[index++] = 0;
+
+          // Push the scope object
+          stack.push(currentObjectStored);          
+          // Set the new object
+          currentObjectStored = {object: value.scope, index: index, endIndex: 0, keys: Object.keys(value.scope)};
+          // Adjust index
+          index = index + 4;        
+        } else if(typeof value == 'object') {
+          // Write the type of either Array or object
+          buffer[index++] = Array.isArray(value) ? BSON.BSON_DATA_ARRAY : BSON.BSON_DATA_OBJECT;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Push object on stack
+          stack.push(currentObjectStored);          
+          // Set the new object
+          currentObjectStored = {object: value, index: index, endIndex: 0, keys: Object.keys(value)};
+          // Adjust index
+          index = index + 4;
+        }      
+
+        if(currentObjectStored.keys.length == 0) {
+          // Save end index
+          currentObjectStored.endIndex = index;
+
+          // If we have a stack pop and finish up processing
+          if(stack.length > 0) {  
+            // Write the current object size out
+            // Pack the size of the total buffer length
+            size = currentObjectStored.endIndex - currentObjectStored.index + 1;          
+            // Write the size of the string to buffer
+            buffer[currentObjectStored.index + 3] = (size >> 24) & 0xff;     
+            buffer[currentObjectStored.index + 2] = (size >> 16) & 0xff;
+            buffer[currentObjectStored.index + 1] = (size >> 8) & 0xff;
+            buffer[currentObjectStored.index] = size & 0xff;          
+            // Adjust and set null last parameter
+            buffer[index++] = 0;
+
+            // Pop off the stored object
+            currentObjectStored = stack.pop();            
+          }
+        }
+      }
+
+      if(stack.length > 0) {          
+        // Write the current object size out
+        // Pack the size of the total buffer length
+        size = stack.length >= 1 ? (index - currentObjectStored.index + 1) :
+          currentObjectStored.endIndex - currentObjectStored.index + 16;      
+        // Write the size of the string to buffer
+        buffer[currentObjectStored.index + 3] = (size >> 24) & 0xff;     
+        buffer[currentObjectStored.index + 2] = (size >> 16) & 0xff;
+        buffer[currentObjectStored.index + 1] = (size >> 8) & 0xff;
+        buffer[currentObjectStored.index] = size & 0xff;   
+        // Adjust and set null last parameter
+        buffer[index++] = 0;      
+        // Pop off the stored object
+        currentObjectStored = stack.pop();            
+      } else {          
+        // Pack the size of the total buffer length
+        size = buffer.length;
+        // Write the size of the string to buffer
+        buffer[3] = (size >> 24) & 0xff;     
+        buffer[2] = (size >> 16) & 0xff;
+        buffer[1] = (size >> 8) & 0xff;
+        buffer[0] = size & 0xff;  
+        // Set last buffer field to 0
+        buffer[buffer.length - 1] = 0;      
+        // return buffer;      
+        done = true;
+        break;
+      }
+    }
+
+    // If we passed in an index
+    return index;  
+  } else {
+    throw new Error("Not a valid object");
+  }
+}
+
+BSON.serialize = function serialize(object, checkKeys, asBuffer) {
+  if(object instanceof Object) {
+    //
+    //  Calculate size of the object
+    //
+    var totalLength = (4 + 1);
+    var done = false;
+    var stack = [];
+    var currentObject = object;
+    var keys = null;
+    // Controls the flow
+    var finished = false;
+
+    while(!done) {
+      // Only get keys if we have a new object
+      keys = keys == null ? Object.keys(currentObject) : keys;    
+
+      // Let's process all the elements
+      while(keys.length > 0) {
+        var name = keys.shift();
+        var value = currentObject[name];
+
+        if(value == null) {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (1);
+        } else if(Array.isArray(value)) {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (4 + 1) + 1;
+          stack.push({keys:keys, object:currentObject});
+          currentObject = value;
+          keys = Object.keys(value)
+          break;        
+        } else if(typeof value == 'number' && value === parseInt(value, 10)) {        
+          if(value >= BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN) {                
+            totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+          } else {                
+            totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (4 + 1);
+          }
+        } else if(typeof value == 'number' || toString.call(value) === '[object Number]') {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+        } else if(typeof value == 'boolean' || toString.call(value) === '[object Boolean]') {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (1 + 1);
+        } else if(value instanceof Date) {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+        } else if(typeof value == 'string') {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (Buffer.byteLength(value, 'utf8') + 4 + 1 + 1);
+        } else if(value instanceof ObjectID || (value.id && value.toHexString)) {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (12 + 1);
+        } else if(value instanceof Binary) {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (value.position + 1 + 4 + 1);
+        } else if(value instanceof Long) {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+        } else if(value instanceof Timestamp) {
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (8 + 1);
+        } else if(value instanceof RegExp || toString.call(value) === '[object RegExp]') {
+          // Keep list of valid options
+          var options_array = [];
+          var str = value.toString();
+          var clean_regexp = str.match(/\/.*\//, '');
+          clean_regexp = clean_regexp[0].substring(1, clean_regexp[0].length - 1);
+          var options = str.substr(clean_regexp.length + 2);
+
+          // Extract all options that are legal and sort them alphabetically
+          for(var index = 0, len = options.length; index < len; ++index) {
+            var chr = options.charAt(index);
+            if('i' == chr || 'm' == chr || 'x' == chr) {
+              options_array.push(chr);
+            }
+          }
+
+          // Calculate the total length
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (Buffer.byteLength(clean_regexp) + 1 + options_array.length + 1 + 1);
+        } else if(value instanceof DBRef) {
+          var ordered_values = {
+              '$ref': value.namespace
+            , '$id' : value.oid
+          };
+
+          if(null != value.db) {
+            ordered_values['$db'] = value.db;
+          }
+
+          // Calculate the object
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (4 + 1 + 1);
+          stack.push({keys:keys, object:currentObject});
+          currentObject = ordered_values;
+          keys = Object.keys(ordered_values)
+          break;
+        } else if(value instanceof Code) {
+          // Calculate the length of the code string        
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + 4 + (value.code.toString().length + 1) + 4;
+          totalLength += (4 + 1 + 1);
+          // Push the current object
+          stack.push({keys:keys, object:currentObject});
+          currentObject = value.scope;
+          keys = Object.keys(value.scope)
+          break;        
+        } else if(typeof value == 'object') {
+          // Calculate the object
+          totalLength += (name != null ? (Buffer.byteLength(name) + 1) : 0) + (4 + 1 + 1);                
+          // Otherwise handle keys
+          stack.push({keys:keys, object:currentObject});
+          currentObject = value;
+          keys = Object.keys(value)
+          break;
+        }
+
+        // Finished up the object
+        if(keys.length == 0) {
+          finished = true;
+        }
+      }
+
+      // If the stack is empty let's finish up, otherwise pop the previous object and
+      // continue
+      if(stack.length == 0) {
+        done = true;
+      } else if(finished || keys.length == 0){
+        currentObjectStored = stack.pop();
+        currentObject = currentObjectStored.object;
+        keys = currentObjectStored.keys;      
+        finished = keys.length == 0 ? true: false;
+      }
+    }    
+
+    // Create a single buffer object
+    var buffer = new Buffer(totalLength);
+
+    //
+    //  Serialize object
+    //
+    var index = 0;
+    var done = false;
+    var stack = [];
+    var currentObject = object;
+    var keys = null;
+    var size = 0;
+    var objectIndex = 0;
+    var totalNumberOfObjects = 0;
+    // Special index for Code objects
+    var codeStartIndex = 0;
+    // Signals if we are finished up
+    var finished = false;  
+
+    // Current parsing object state
+    var currentObjectStored = {object: object, index: index, endIndex: 0, keys: Object.keys(object)};  
+  	// Adjust the index
+  	index = index + 4;
+
+    // While meeting
+    while(!done) {
+      // While current object has keys
+      while(currentObjectStored.keys.length > 0) {
+        var name = currentObjectStored.keys.shift();
+        var value = currentObjectStored.object[name];
+
+        // If we got a key check for valid type
+        if(name != null && checkKeys ==  true && (name != '$db' && name != '$ref' && name != '$id')) {
+          BSON.checkKey(name);        
+        }
+
+        if(value == null) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_NULL;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }        
+        } else if(typeof value == 'string') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_STRING;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Calculate size
+          size = Buffer.byteLength(value) + 1;
+          // Write the size of the string to buffer
+          buffer[index + 3] = (size >> 24) & 0xff;     
+          buffer[index + 2] = (size >> 16) & 0xff;
+          buffer[index + 1] = (size >> 8) & 0xff;
+          buffer[index] = size & 0xff;
+          // Ajust the index
+          index = index + 4;
+          // Write the string
+          buffer.write(value, index, 'utf8');
+          // Update index
+          index = index + size - 1;
+          // Write zero
+          buffer[index++] = 0;
+        } else if(typeof value == 'number' && value === parseInt(value, 10)) {
+          // Write the type
+          buffer[index++] = value >= BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN ? BSON.BSON_DATA_LONG : BSON.BSON_DATA_INT;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          if(value >= BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN) { 
+            // Write the number
+            var long = Long.fromNumber(value);
+            binaryutils.encodeIntInPlace(long.getLowBits(), buffer, index);
+            binaryutils.encodeIntInPlace(long.getHighBits(), buffer, index + 4);
+            index += 8;
+          } else {                
+            // Write the int value to the buffer
+            buffer[index + 3] = (value >> 24) & 0xff;      
+            buffer[index + 2] = (value >> 16) & 0xff;
+            buffer[index + 1] = (value >> 8) & 0xff;
+            buffer[index] = value & 0xff;
+            // Ajust the index
+            index = index + 4;          
+          }
+        } else if(typeof value == 'number' || toString.call(value) === '[object Number]') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_NUMBER;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write float
+          ieee754.writeIEEE754(buffer, value, index, 'little', 52, 8);
+          // Ajust index
+          index = index + 8;
+        } else if(typeof value == 'boolean' || toString.call(value) === '[object Boolean]') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_BOOLEAN;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          buffer[index++] = value ? 1 : 0;
+        } else if(value instanceof Date || toString.call(value) === '[object Date]') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_DATE;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write the date
+          var dateInMilis = Long.fromNumber(value.getTime());
+          binaryutils.encodeIntInPlace(dateInMilis.getLowBits(), buffer, index);
+          binaryutils.encodeIntInPlace(dateInMilis.getHighBits(), buffer, index + 4);        
+          // Ajust index
+          index = index + 8;        
+        } else if(value instanceof RegExp || toString.call(value) === '[object RegExp]') {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_REGEXP;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Keep list of valid options
+          var options_array = [];
+          var str = value.toString();
+          var clean_regexp = str.match(/\/.*\//, '');
+          clean_regexp = clean_regexp[0].substring(1, clean_regexp[0].length - 1);
+          // Get options from the regular expression
+          var options = str.substr(clean_regexp.length + 2);
+
+          // Write the regexp to the buffer
+          buffer.write(clean_regexp, index, 'utf8');
+          // Update the index
+          index = index + Buffer.byteLength(clean_regexp) + 1;
+          // Write ending cstring zero
+          buffer[index - 1] = 0;          
+
+          // Extract all options that are legal and sort them alphabetically
+          for(var i = 0, len = options.length; i < len; ++i) {
+            var chr = options[i];          
+            if('i' == chr || 'm' == chr || 'x' == chr) {
+              buffer[index++] = chr.charCodeAt(0)
+            }
+          }
+
+          // Write ending cstring zero
+          buffer[index++] = 0;
+        } else if(value instanceof Long) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_LONG;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write the date
+          binaryutils.encodeIntInPlace(value.getLowBits(), buffer, index);
+          binaryutils.encodeIntInPlace(value.getHighBits(), buffer, index + 4);        
+          // Ajust index
+          index = index + 8;        
+        } else if(value instanceof Timestamp) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_TIMESTAMP;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write the date
+          binaryutils.encodeIntInPlace(value.getLowBits(), buffer, index);
+          binaryutils.encodeIntInPlace(value.getHighBits(), buffer, index + 4);        
+          // Ajust index
+          index = index + 8;        
+        } else if(value instanceof Binary) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_BINARY;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Extract the buffer
+          var data = value.value(true);        
+          // Calculate size
+          size = data.length;
+          // Write the size of the string to buffer
+          buffer[index + 3] = (size >> 24) & 0xff;     
+          buffer[index + 2] = (size >> 16) & 0xff;
+          buffer[index + 1] = (size >> 8) & 0xff;
+          buffer[index] = size & 0xff;
+          // Update the index
+          index = index + 4;
+          // Write the subtype to the buffer
+          buffer[index++] = value.sub_type;
+          // Write the data to the object
+          data.copy(buffer, index, 0, data.length);
+          // Ajust index
+          index = index + data.length;
+        } else if(value instanceof ObjectID) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_OID;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Write objectid
+          buffer.write(value.id, index, 'binary');
+          // Ajust index
+          index = index + 12;
+        } else if(value instanceof DBRef) {
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_OBJECT;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          var ordered_values = {
+              '$ref': value.namespace
+            , '$id' : value.oid
+          };
+
+          if(null != value.db) {
+            ordered_values['$db'] = value.db;
+          }
+
+          // Push object on stack
+          stack.push(currentObjectStored);          
+          // Set the new object
+          currentObjectStored = {object: ordered_values, index: index, endIndex: 0, keys: Object.keys(ordered_values)};
+          // Adjust index
+          index = index + 4;
+        } else if(value instanceof Code) {
+          // Calculate the scope size
+          var scopeSize = BSON.calculateObjectSize(value.scope);
+          // Write the type
+          buffer[index++] = BSON.BSON_DATA_CODE_W_SCOPE;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Convert value to string
+          var codeString = value.code.toString();        
+          var codeStringLength = Buffer.byteLength(codeString);
+          // Calculate size
+          size = 4 + codeStringLength + 1 + 4 + scopeSize;        
+          // Write the size of the string to buffer
+          buffer[index + 3] = (size >> 24) & 0xff;     
+          buffer[index + 2] = (size >> 16) & 0xff;
+          buffer[index + 1] = (size >> 8) & 0xff;
+          buffer[index] = size & 0xff;
+          // Update index        
+          index = index + 4;
+
+          // Calculate codestring length
+          size = codeStringLength + 1;
+          // Write the size of the string to buffer
+          buffer[index + 3] = (size >> 24) & 0xff;     
+          buffer[index + 2] = (size >> 16) & 0xff;
+          buffer[index + 1] = (size >> 8) & 0xff;
+          buffer[index] = size & 0xff;
+          // Update index        
+          index = index + 4;
+
+          // Write the string
+          buffer.write(codeString, index, 'utf8');
+          // Update index
+          index = index + codeStringLength;
+          // Add final 0 for cstring        
+          buffer[index++] = 0;
+
+          // Push the scope object
+          stack.push(currentObjectStored);          
+          // Set the new object
+          currentObjectStored = {object: value.scope, index: index, endIndex: 0, keys: Object.keys(value.scope)};
+          // Adjust index
+          index = index + 4;        
+        } else if(typeof value == 'object') {
+          // Write the type of either Array or object
+          buffer[index++] = Array.isArray(value) ? BSON.BSON_DATA_ARRAY : BSON.BSON_DATA_OBJECT;
+          // Write the name
+          if(name != null) {
+            index = index + buffer.write(name, index, 'utf8') + 1;
+            buffer[index - 1] = 0;          
+          }
+
+          // Push object on stack
+          stack.push(currentObjectStored);          
+          // Set the new object
+          currentObjectStored = {object: value, index: index, endIndex: 0, keys: Object.keys(value)};
+          // Adjust index
+          index = index + 4;
+        }      
+
+        if(currentObjectStored.keys.length == 0) {
+          // Save end index
+          currentObjectStored.endIndex = index;
+
+          // If we have a stack pop and finish up processing
+          if(stack.length > 0) {  
+            // Write the current object size out
+            // Pack the size of the total buffer length
+            size = currentObjectStored.endIndex - currentObjectStored.index + 1;          
+            // Write the size of the string to buffer
+            buffer[currentObjectStored.index + 3] = (size >> 24) & 0xff;     
+            buffer[currentObjectStored.index + 2] = (size >> 16) & 0xff;
+            buffer[currentObjectStored.index + 1] = (size >> 8) & 0xff;
+            buffer[currentObjectStored.index] = size & 0xff;          
+            // Adjust and set null last parameter
+            buffer[index++] = 0;
+
+            // Pop off the stored object
+            currentObjectStored = stack.pop();            
+          }
+        }
+      }
+
+      if(stack.length > 0) {          
+        // Write the current object size out
+        // Pack the size of the total buffer length
+        size = stack.length >= 1 ? (index - currentObjectStored.index + 1) :
+          currentObjectStored.endIndex - currentObjectStored.index + 16;      
+        // Write the size of the string to buffer
+        buffer[currentObjectStored.index + 3] = (size >> 24) & 0xff;     
+        buffer[currentObjectStored.index + 2] = (size >> 16) & 0xff;
+        buffer[currentObjectStored.index + 1] = (size >> 8) & 0xff;
+        buffer[currentObjectStored.index] = size & 0xff;   
+        // Adjust and set null last parameter
+        buffer[index++] = 0;      
+        // Pop off the stored object
+        currentObjectStored = stack.pop();            
+      } else {          
+        // Pack the size of the total buffer length
+        size = buffer.length;
+        // Write the size of the string to buffer
+        buffer[3] = (size >> 24) & 0xff;     
+        buffer[2] = (size >> 16) & 0xff;
+        buffer[1] = (size >> 8) & 0xff;
+        buffer[0] = size & 0xff;  
+        // Set last buffer field to 0
+        buffer[buffer.length - 1] = 0;      
+        // return buffer;      
+        done = true;
+        break;
+      }
+    }
+    // Return serialized object
+    return buffer;
+  } else {
+    throw new Error("Not a valid object");
+  }
 };
 
-BSON.deserialize = function(data, is_array_item, returnData, returnArray) {
-  // The return data
-  var return_data = {};
-  var return_array = [];
-  // Index of decoding in the binary file
+/**
+ * Deserialize `data` as BSON.
+ *
+ * @param {TODO} data
+ * @param {Bool} is_array_item
+ * @param {TODO} returnData
+ * @param {TODO} returnArray
+ * @return {TODO}
+ */
+ 
+BSON.deserialize = function(data) {
+  if(!(data instanceof Buffer)) throw new Error("data stream not a buffer object");
+  // Finial object returned to user
+  var object = {};
+  var currentObject = object;
+  // Index for parse position
   var index = 0;
-  // Split of the first 4 characters to get the number of bytes
-  var size = BinaryParser.toInt(data.substr(0, 4));
-  // Adjust index
-  index = index + 4;
+  // Stack for keeping parser objects
+  var stack = [];
+  // Size Of data
+  var bufferLength = data.length;
+  // Local variables
+  var value = null;
+  var string_name = null;
+  var string_end_index = 0;
+  var string_size = 0;
+  // Variables keeping track of sub object parsing
+  var object_end_index = 0;
+  var object_name= null;
   
-  while(index < data.length) {
+  // Decode 
+  var size = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
+  // Ajust index
+  index = index + 4;
+  // Data length
+  var dataLength = data.length;
+  
+  while(index < dataLength) {
     // Read the first byte indicating the type of object
-    var type = BinaryParser.toSmall(data.substr(index, 1));
-    var insert_index = 0;
+    var type = data[index];    
     // Adjust for the type of element
-    index = index + 1;
-    // If it's a string decode the value
-    if(type == BSON.BSON_DATA_STRING) {
+    index = index + 1;    
+
+    // Check if we have finished an object
+    if(object_end_index !== 0 && index > object_end_index) {
+      // Save the current Object for storing
+      var value = currentObject;
+
+      // Pop the previous object so we can add the attribute
+      var currentObjectInstance = stack.pop();
+      
+      // Let's set the parent object as the current Object      
+      if(currentObjectInstance != null) {        
+        currentObject = currentObjectInstance.object;
+        object_end_index = currentObjectInstance.index;
+
+        if(value['$id'] != null && value['$ref'] != null) {
+          value = new DBRef(value['$ref'], value['$id'], value['$db']);
+        }
+
+        currentObject[currentObjectInstance.name] = value;
+      }
+    }
+    
+    if(type === BSON.BSON_DATA_STRING) {
       // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
       // Ajust index to point to the end of the string
       index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-
-      // Read the length of the string (next 4 bytes)
-      var string_size = BinaryParser.toInt(data.substr(index, 4));
+      
+      // Decode the length of the string (next 4 bytes)
+      string_size = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
       // Adjust the index to point at start of string
-      index = index + 4;      
+      index = index + 4;
       // Read the string
-      var value = BinaryParser.decode_utf8(data.substr(index, string_size - 1));
+      value = data.toString('utf8', index, index + string_size - 1);
       // Adjust the index with the size of the string
       index = index + string_size;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_NULL) {
+      
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_REGEXP) {
       // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+      
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
       // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = null : return_data[string_name] = null;
-    } else if(type == BSON.BSON_DATA_INT) {
-      // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
-      // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read the number value
-      var value = BinaryParser.toInt(data.substr(index, 4));
-      // Adjust the index with the size
-      index = index + 4;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_LONG) {
-      // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
-      // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read the number value
-      var low_bits = Integer.fromInt(BinaryParser.toInt(data.substr(index, 4)));
-      var high_bits = Integer.fromInt(BinaryParser.toInt(data.substr(index + 4, 4)));
-      // Create to integers
-      var value = new Long(low_bits, high_bits);
-      // Adjust the index with the size
-      index = index + 8;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_NUMBER) {
-      // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
-      // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read the number value
-      var value = BinaryParser.toDouble(data.substr(index, 8));
-      // Adjust the index with the size
-      index = index + 8;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_OBJECT) {
-      // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
-      // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read the size of the object
-      var object_size = BinaryParser.toInt(data.substr(index, 4));
-      // Do a substr based on the size and parse the sub object
-      var object_data = data.substr(index, object_size);
-      // Parse the object
-      var value = BSON.deserialize(object_data, false);
-      // Adjust the index for the next value
-      index = index + object_size;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_ARRAY) {
-      // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
-      // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read the size of the object
-      var array_size = BinaryParser.toInt(data.substr(index, 4));
-      // Let's split off the data and parse all elements (keeping in mind the elements)
-      var array_data = data.substr(index, array_size);
-      // Parse the object
-      var value = BSON.deserialize(array_data, true);
-      // Adjust the index for the next value
-      index = index + array_size;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_BOOLEAN) {
-      // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
-      // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read the length of the string (next 4 bytes)
-      var boolean_value = BinaryParser.toSmall(data.substr(index, 1));
-      var value = boolean_value == 1 ? true : false;
-      // Adjust the index
+      index = string_end_index + 1;      
+
+      // Read characters until end of regular expression
+      var reg_exp_array = [];
+      var chr = 1;
+      var start_index = index;
+
+      while(data[index] !== 0) {
+        index = index + 1;
+      }
+
+      // RegExp Expression
+      reg_exp = data.toString('utf8', start_index, index);
       index = index + 1;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_DATE) {
+
+      // Read the options for the regular expression
+      var options_array = [];
+
+      while(data[index] !== 0) {
+        options_array.push(String.fromCharCode(data[index]));
+        index = index + 1;
+      }
+
+      // Regular expression
+      var value = new RegExp(reg_exp, options_array.join(''));
+      
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_DATE) {
       // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+      
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
       // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read the number value
-      var low_bits = Integer.fromInt(BinaryParser.toInt(data.substr(index, 4)));
-      var high_bits = Integer.fromInt(BinaryParser.toInt(data.substr(index + 4, 4)));
+      index = string_end_index + 1;      
+      
+      // Read low bits
+      var low_bits = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
+      // Adjust index
+      index = index + 4;
+      // Read high bits
+      var high_bits = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
+      // Adjust index
+      index = index + 4;
+  
       // Create to integers
       var value_in_seconds = new Long(low_bits, high_bits).toNumber();
       // Calculate date with miliseconds
       var value = new Date();
       value.setTime(value_in_seconds);
-      // Adjust the index
-      index = index + 8;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_OID) {
+      
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_BINARY) {
       // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
       // Ajust index to point to the end of the string
       index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read the oid (12 bytes)
-      var oid = data.substr(index, 12);
-      // Calculate date with miliseconds
-      var value = new exports.ObjectID(oid);
-      // Adjust the index
-      index = index + 12;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_CODE_W_SCOPE) {
-      // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
-      // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Unpack the integer sizes
-      var total_code_size = BinaryParser.toInt(data.substr(index, 4));
+
+      // Read the size of the binary
+      var number_of_bytes = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
       index = index + 4;
-      var string_size = BinaryParser.toInt(data.substr(index, 4));
+
+      // Decode the subtype
+      var sub_type = data[index];
+      index = index + 1;
+  
+      // Read the next bytes into our Binary object
+      var bin_data = data.slice(index, index + number_of_bytes);
+      // Binary object
+      var value = new Binary(bin_data);
+      value.sub_type = sub_type;
+      // Adjust index with number of bytes
+      index = index + number_of_bytes;
+
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_NUMBER) {
+      // Read the null terminated string (indexof until first 0)
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
+      // Ajust index to point to the end of the string
+      index = string_end_index + 1;
+      
+      // Read the number value
+      var value = ieee754.readIEEE754(data, index, 'little', 52, 8);     
+      // Adjust the index with the size
+      index = index + 8;
+
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_OID) {
+      // Read the null terminated string (indexof until first 0)
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+      
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
+      // Ajust index to point to the end of the string
+      index = string_end_index + 1;
+
+      // Read the oid (12 bytes)
+      var oid = data.toString('binary', index, index + 12);
+      // Calculate date with miliseconds
+      var value = new ObjectID(oid);
+      // Adjust the index
+      index = index + 12;      
+
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_CODE_W_SCOPE) {
+      // Read the null terminated string (indexof until first 0)
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
+      // Ajust index to point to the end of the string
+      index = string_end_index + 1;
+
+      // Unpack the integer sizes
+      var total_code_size = binaryutils.decodeUInt32(data, index)
+      index = index + 4;
+      var string_size = binaryutils.decodeUInt32(data, index)
       index = index + 4;
       // Read the string + terminating null
-      var code_string = BinaryParser.decode_utf8(data.substr(index, string_size - 1));
+      var code_string = data.toString('utf8', index, index + string_size - 1);
       index = index + string_size;
       // Get the bson object
       var bson_object_size = total_code_size - string_size - 8;
-      var bson_object_string = data.substr(index, bson_object_size);
+      var bson_object_string = data.slice(index, index + bson_object_size);
       index = index + bson_object_size;
       // Parse the bson object
       var scope_object = BSON.deserialize(bson_object_string, false);
       // Create code object
-      var value = new exports.Code(code_string, scope_object);
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_REGEXP) {
+      var value = new Code(code_string, scope_object);
+      
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_LONG || type === BSON.BSON_DATA_TIMESTAMP) {
       // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
       // Ajust index to point to the end of the string
       index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // Read characters until end of regular expression
-      var reg_exp_array = [];
-      var chr = 1;
-      while(BinaryParser.toByte((chr = data.charAt(index++))) != 0) {
-        reg_exp_array.push(chr);
-      }
-      // Read the options for the regular expression
-      var options_array = [];
-      while(BinaryParser.toByte((chr = data.charAt(index++))) != 0) {
-        options_array.push(chr);
-      }
-      // Regular expression
-      var value = new RegExp(reg_exp_array.join(''), options_array.join(''));
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
-    } else if(type == BSON.BSON_DATA_BINARY) {
-      // Read the null terminated string (indexof until first 0)
-      var string_end_index = data.indexOf('\0', index);
-      var string_name = data.substring(index, string_end_index);
-      // Ajust index to point to the end of the string
-      index = string_end_index + 1;
-      // If we have an index read the array index      
-      if(is_array_item) insert_index = parseInt(string_name, 10);
-      // The total number of bytes after subtype
-      var total_number_of_bytes = BinaryParser.toInt(data.substr(index, 4));
+
+      // Read the number value
+      var low_bits = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
+      // Adjust index
       index = index + 4;
-      // Decode the subtype
-      var sub_type = BinaryParser.toByte(data.substr(index, 1));
+      // Read high bits
+      var high_bits = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
+      // Adjust index
+      index = index + 4;
+      var value = type === BSON.BSON_DATA_LONG ? new Long(low_bits, high_bits) : new Timestamp(low_bits, high_bits);
+
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_INT) {
+      // Read the null terminated string (indexof until first 0)
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
+      // Ajust index to point to the end of the string
+      index = string_end_index + 1;
+      
+      // Decode the length of the string (next 4 bytes)
+      var value = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
+      // Adjust the index with the size
+      index = index + 4;
+
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_NULL) {
+      // Read the null terminated string (indexof until first 0)
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
+      // Ajust index to point to the end of the string
+      index = string_end_index + 1;
+      // Set null value
+      value = null;
+      
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_BOOLEAN) {
+      // Read the null terminated string (indexof until first 0)
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      string_name = data.toString('utf8', index, string_end_index);
+      // Ajust index to point to the end of the string
+      index = string_end_index + 1;
+      
+      // Read the length of the string (next 4 bytes)
+      var boolean_value = data[index];
+      var value = boolean_value == 1 ? true : false;
+      // Adjust the index
       index = index + 1;
-      // Binary object
-      var value = new exports.Binary();
-      value.sub_type = sub_type;
-      // Read the size of the binary
-      var number_of_bytes = BinaryParser.toInt(data.substr(index, 4));
-      index = index + 4;
-      // Read the next bytes into our Binary object
-      var bin_data = data.substr(index, number_of_bytes);
-      value.write(bin_data);
-      // Adjust index with number of bytes
-      index = index + number_of_bytes;
-      // Set the data on the object
-      is_array_item ? return_array[insert_index] = value : return_data[string_name] = value;
+
+      // Set object property
+      currentObject[Array.isArray(currentObject) ? parseInt(string_name, 10) : string_name] = value;
+    } else if(type === BSON.BSON_DATA_OBJECT || type === BSON.BSON_DATA_ARRAY) {
+      // Read the null terminated string (indexof until first 0)
+      string_end_index = index;
+      while(data[string_end_index++] !== 0);      
+      string_end_index = string_end_index - 1;
+            
+      // Fetch the string name
+      object_name = data.toString('utf8', index, string_end_index);
+      // Ajust index to point to the end of the string
+      index = string_end_index + 1;
+
+      // Decode the length of the object (next 4 bytes)
+      var object_size = data[index] | data[index + 1] << 8 | data[index + 2] << 16 | data[index + 3] << 24;
+      // Stack object
+      var stackObject = {name: object_name, object: currentObject, index: object_end_index};
+      // Let's push the current object to the stack and work on this one
+      stack.push(stackObject);
+      // Set current pointer to empty object
+      currentObject = type === BSON.BSON_DATA_ARRAY ? [] : {};
+      // Set the end index for the new object so we know then to stop
+      object_end_index = index + object_size;
+      // Ajdust index
+      index = index + 4;        
     }
   }
-  // Check if we have a db reference
-  if(!is_array_item && return_data['$ref'] != null) {
-    return_data = new exports.DBRef(return_data['$ref'], return_data['$id'], return_data['$db']);
-  }
-
-  // Return the data
-  return is_array_item ? return_array : return_data;
-};
-
-BSON.encodeString = function(string) {
-  var encodedString = BinaryParser.encode_cstring(string);
-  // Encode the string as binary with the length
-  return BinaryParser.fromInt(encodedString.length) + encodedString;
-};
-
-BSON.encodeInt = function(number) {
-  return BinaryParser.fromInt(number.toInt());
-};
-
-BSON.encodeLong = function(number) {
-  return BinaryParser.fromInt(number.getLowBits()) + BinaryParser.fromInt(number.getHighBits());
-};
-
-BSON.encodeFloat = function(number) {
-  return BinaryParser.fromDouble(number);
-};
-
-BSON.encodeArray = function(array, checkKeys) {
-  var encoded_string = '';
-
-  for(var index = 0; index < array.length; index++) {
-    var index_string = new String(index) + BinaryParser.fromByte(0);
-    var encoded_object = BSON.encodeValue('', null, array[index], false, checkKeys);
-    encoded_string += encoded_object.substr(0, 1) + index_string + encoded_object.substr(1);
-  }
-
-  return encoded_string;
-};
-
-BSON.encodeObject = function(object, checkKeys) {
-  var encoded_string = '';
-  // Let's fetch all the variables for the object and encode each
-  for(var variable in object) {
-    if(object[variable] == null || (object[variable] != null && object[variable].constructor != Function)) {
-      encoded_string += BSON.encodeValue('', variable, object[variable], false, checkKeys);
-    }
-  }
-  // Return the encoded string
-  return encoded_string;
-};
-
-BSON.encodeOrderedObject = function(object, checkKeys) {
-  var encoded_string = '';
-  // Ensure the id is always first object of ordered hash
-  if(object.get('_id') != null) encoded_string += BSON.encodeValue('', '_id', object.get('_id'), false, checkKeys);
-  // Encode all other objects in the order provided
-  for(var index = 0; index < object.keys().length; index++) {
-    var key = object.keys()[index];
-    if(key != '_id') encoded_string += BSON.encodeValue('', key, object.get(key), false, checkKeys);
-  }
-  return encoded_string;
-};
-
-BSON.encodeBoolean = function(value) {
-  return value ? BinaryParser.fromSmall(1) : BinaryParser.fromSmall(0);
-};
-
-BSON.encodeDate = function(value) {
-  var dateInMilis = Long.fromNumber(value.getTime());
-  return BinaryParser.fromInt(dateInMilis.getLowBits()) + BinaryParser.fromInt(dateInMilis.getHighBits());
-};
-
-BSON.encodeOid = function(oid) {
-  return oid.id;
-};
-
-BSON.encodeCode = function(code, checkKeys) {
-  // Get the code_string
-  var code_string = BSON.encodeString(code.code);
-  var scope = BinaryParser.fromInt(5) + BinaryParser.fromByte(0);
-  // Encode the scope (a hash of values or ordered hash)
-  if(code.scope != null) {
-    scope = BSON.encodeValue('', null, code.scope, false, checkKeys);
-    scope = scope.substring(1, scope.length);
-  }
-  // Calculate lengths
-  var total_length = code_string.length - 4 + scope.length + 8;
-  return BinaryParser.fromInt(total_length) + code_string + scope;
-};
-
-BSON.encodeRegExp = function(regexp) {
-  // Get regular expression
-  var clean_regexp = regexp.toString().match(/\/.*\//, '');
-  clean_regexp = clean_regexp[0].substring(1, clean_regexp[0].length - 1);
-  var options = regexp.toString().substr(clean_regexp.length + 2);
-  var options_array = [];
-  // Extract all options that are legal and sort them alphabetically
-  for(var index = 0; index < options.length; index++) {
-    var chr = options.charAt(index);
-    if(chr == 'i' || chr == 'm' || chr == 'x') options_array.push(chr);
-  }
-  // Don't need to sort the alphabetically as it's already done by javascript on creation of a Regexp obejct
-  options = options_array.join('');
-  // Encode the regular expression
-  return BinaryParser.encode_cstring(clean_regexp) + BinaryParser.encode_cstring(options);
-};
-
-BSON.encodeBinary = function(binary) {
-  var data = binary.value();
-  return BinaryParser.fromByte(binary.sub_type) + BinaryParser.fromInt(data.length) + data;
-};
-
-BSON.encodeDBRef = function(dbref) {
-  var ordered_values = new OrderedHash();
-  ordered_values.add('$ref', dbref.namespace);
-  ordered_values.add('$id', dbref.oid);
-  if(dbref.db != null) ordered_values.add('$db', dbref.db);
-  return BSON.encodeOrderedObject(ordered_values);
-};
-
-BSON.checkKey = function(variable) {
-  // Check if we have a legal key for the object
-  if(variable.length > 0 && variable.substr(0, 1) == '$') {
-    throw Error("key " + variable + " must not start with '$'");
-  } else if(variable.length > 0 && variable.indexOf('.') != -1) {
-    throw Error("key " + variable + " must not contain '.'");
-  }
-};
-
-BSON.encodeValue = function(encoded_string, variable, value, top_level, checkKeys) {
-  var variable_encoded = variable == null ? '' : BinaryParser.encode_cstring(variable);
-  if(checkKeys && variable != null)BSON.checkKey(variable);
-
-  if(value == null) {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_NULL) + variable_encoded;
-  } else if(value.constructor == String) {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_STRING) + variable_encoded + BSON.encodeString(value);
-  } else if(value instanceof Long) {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_LONG) + variable_encoded + BSON.encodeLong(value);
-  } else if(value.constructor == Number && value === parseInt(value, 10)) {
-    if(value > BSON.BSON_INT32_MAX || value < BSON.BSON_INT32_MIN) {      
-      encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_LONG) + variable_encoded + BSON.encodeLong(Long.fromNumber(value));
-    } else {
-      encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_INT) + variable_encoded + BSON.encodeInt(Integer.fromInt(value));      
-    }    
-  } else if(value.constructor == Number) {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_NUMBER) + variable_encoded + BSON.encodeFloat(value);
-  } else if(Array.isArray(value)) {
-    var object_string = BSON.encodeArray(value, checkKeys);
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_ARRAY) + variable_encoded + BSON.encodeInt(Integer.fromInt(object_string.length + 4 + 1)) + object_string + BinaryParser.fromByte(0);
-  } else if(Object.prototype.toString.call(value) === '[object Boolean]') {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_BOOLEAN) + variable_encoded + BSON.encodeBoolean(value);
-  } else if(Object.prototype.toString.call(value) === '[object Date]') {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_DATE) + variable_encoded + BSON.encodeDate(value);
-  } else if(Object.prototype.toString.call(value) === '[object RegExp]') {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_REGEXP) + variable_encoded + BSON.encodeRegExp(value);
-  } else if(value instanceof ObjectID || (value.id && value.toHexString)) {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_OID) + variable_encoded + BSON.encodeOid(value);
-  } else if(value instanceof Code) {
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_CODE_W_SCOPE) + variable_encoded + BSON.encodeCode(value, checkKeys);
-  } else if(value instanceof OrderedHash) {
-    var object_string = BSON.encodeOrderedObject(value, checkKeys);
-    encoded_string += (!top_level ? BinaryParser.fromByte(BSON.BSON_DATA_OBJECT) : '') + variable_encoded + BSON.encodeInt(Integer.fromInt(object_string.length + 4 + 1)) + object_string + BinaryParser.fromByte(0);
-  } else if(value instanceof Binary) {
-    var object_string = BSON.encodeBinary(value);
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_BINARY) + variable_encoded + BSON.encodeInt(Integer.fromInt(object_string.length - 1)) + object_string;
-  } else if(value instanceof DBRef) {
-    var object_string = BSON.encodeDBRef(value);
-    encoded_string += BinaryParser.fromByte(BSON.BSON_DATA_OBJECT) + variable_encoded + BSON.encodeInt(Integer.fromInt(object_string.length + 4 + 1)) + object_string + BinaryParser.fromByte(0);
-  } else if(Object.prototype.toString.call(value) === '[object Object]') {
-    var object_string = BSON.encodeObject(value, checkKeys);
-    encoded_string += (!top_level ? BinaryParser.fromByte(BSON.BSON_DATA_OBJECT) : '') + variable_encoded + BSON.encodeInt(Integer.fromInt(object_string.length + 4 + 1)) + object_string + BinaryParser.fromByte(0);
-  }
-
-  return encoded_string;
-};
-
-var Code = exports.Code = function(code, scope) {
-  this.code = code;
-  this.scope = scope == null ? new OrderedHash() : scope;
-};
-
-/**
-  Object ID used to create object id's for the mongo requests
-**/
-var ObjectID = exports.ObjectID = function(id) {
-  if(id == null) this.id = this.generate();
-  else if( /^[0-9a-fA-F]{24}$/.test(id)) return ObjectID.createFromHexString(id);
-  else this.id = id;
-};
-
-ObjectID.prototype.get_inc = function() {
-  exports.ObjectID.index = (exports.ObjectID.index + 1) % 0xFFFFFF;
-  return exports.ObjectID.index;
-};
-
-/* Find the machine id. */
-var MACHINE_ID = (function() {
-  // Create a random 3-byte value (i.e. unique for this
-  // process). Other drivers use a md5 of the machine id here, but
-  // that would mean an asyc call to gethostname, so we don't bother.
-  var rnd = parseInt(Math.random() * 0xffffff);
-  return rnd;
-})();
-
-ObjectID.prototype.generate = function() {
-  var unixTime = parseInt((new Date()).getTime()/1000);
-  var time4Bytes = BinaryParser.encodeInt(unixTime, 32, true, true);
-  var machine3Bytes = BinaryParser.encodeInt(MACHINE_ID, 24, false);
-  var pid2Bytes = BinaryParser.fromShort(process.pid);
-  var index3Bytes = BinaryParser.encodeInt(this.get_inc(), 24, false, true);
-  return time4Bytes + machine3Bytes + pid2Bytes + index3Bytes;
-};
-
-ObjectID.prototype.toHexString = function() {
-  var hexString = '';
-  for(var index = 0; index < this.id.length; index++) {
-    var value = BinaryParser.toByte(this.id.substr(index, 1));
-    var number = value <= 15 ? "0" + value.toString(16) : value.toString(16);
-    hexString = hexString + number;
-  }
-  return hexString;
-};
-
-ObjectID.prototype.toString = function() {
-  return this.id;
-};
-
-// accurate up to number of seconds
-ObjectID.prototype.__defineGetter__("generationTime", function() {
-  return BinaryParser.decodeInt(this.id.substring(0,4), 32, true, true) * 1000;
-})
-
-ObjectID.index = 0;
-ObjectID.createPk = function() {
-  return new exports.ObjectID();
-};
-
-ObjectID.createFromHexString= function(hexString) {
-    if(hexString.length > 12*2) throw "Id cannot be longer than 12 bytes";
-    var result= "";
-    for(var index=0 ; index < hexString.length; index+=2) {
-        var string= hexString.substr(index, 2);
-        var number= parseInt(string, 16);
-        result+= BinaryParser.fromByte(number);
-    }
-
-    return new exports.ObjectID(result);
-};
-
-ObjectID.prototype.toJSON = function() {
-  return this.toHexString();
+  
+  // Return the object
+  return object;
 }
+ 
+/**
+ * Check if key name is valid.
+ *
+ * @param {TODO} key
+ */
+BSON.checkKey = function checkKey (key) {
+  return;
+  if (!key.length) return;
+
+  // Check if we have a legal key for the object
+  if ('$' == key[0]) {
+    throw Error("key " + key + " must not start with '$'");
+  } else if (!!~key.indexOf('.')) {
+    throw Error("key " + key + " must not contain '.'");
+  }
+};
 
 /**
-  DBRef contains a db reference
-**/
-var DBRef = exports.DBRef = function(namespace, oid, db) {
+ * Code constructor.
+ *
+ * @param {TODO} code
+ * @param {TODO} scope
+ */
+
+function Code (code, scope) {
+  this.code = code;
+  this.scope = scope == null ? {} : scope;
+};
+
+/**
+ * DBRef constructor.
+ *
+ * @param {TODO} namespace
+ * @param {TODO} oid
+ * @param {TODO} db
+ */
+
+function DBRef (namespace, oid, db) {
   this.namespace = namespace;
   this.oid = oid;
   this.db = db;
 };
 
+DBRef.prototype.toJSON = function() {
+  return JSON.stringify({
+    '$ref':this.namespace,
+    '$id':this.oid,
+    '$db':this.db == null ? '' : this.db
+  });
+}
+
 /**
-  Contains the a binary stream of data
-**/
-var Binary = exports.Binary = function(buffer) {
-  this.sub_type = BSON.BSON_BINARY_SUBTYPE_BYTE_ARRAY;
-  // Create a default sized binary in case non is passed in and prepare the size
-  if(buffer) {
-    this.buffer = buffer;    
-    this.position = buffer.length;
-  } else {
-    this.buffer = new Buffer(Binary.BUFFER_SIZE);
-    this.position = 0;
-  }
-};
+ * Expose.
+ */
 
-Binary.BUFFER_SIZE = 256;
-
-Binary.prototype.put = function(byte_value) {
-  if(this.buffer.length > this.position) {
-    this.buffer[this.position++] = byte_value.charCodeAt(0);
-  } else {
-    // Create additional overflow buffer
-    var buffer = new Buffer(Binary.BUFFER_SIZE + this.buffer.length);
-    // Combine the two buffers together
-    this.buffer.copy(buffer, 0, 0, this.buffer.length);
-    this.buffer = buffer;
-    this.buffer[this.position++] = byte_value.charCodeAt(0);
-  }
-};
-
-Binary.prototype.write = function(string, offset) {
-  offset = offset ? offset : this.position;
-  // If the buffer is to small let's extend the buffer
-  if(this.buffer.length < offset + string.length) {
-    var buffer = new Buffer(this.buffer.length + string.length);
-    this.buffer.copy(buffer, 0, 0, this.buffer.length);
-    // Assign the new buffer
-    this.buffer = buffer;
-  }
-  // Write the content to the buffer
-  this.buffer.write(string, 'binary', offset);
-  this.position = offset + string.length;
-};
-
-Binary.prototype.read = function(position, length) {  
-  length = length && length > 0 ? length : this.position;  
-  // Let's extract the string we want to read
-  return this.buffer.toString('binary', position, position + length);
-};
-
-Binary.prototype.value = function() {
-  return this.buffer.toString('binary', 0, this.position);
-};
-
-Binary.prototype.length = function() {
-  return this.position;
-};
+exports.Code = Code;
+exports.BSON = BSON;
+exports.DBRef = DBRef;
+exports.Binary = Binary;
+exports.ObjectID = ObjectID;
+exports.Long = Long;
+exports.Timestamp = Timestamp;

@@ -9,6 +9,7 @@ var __hasProp = Object.prototype.hasOwnProperty, __extends = function(child, par
 }, __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; }, __slice = Array.prototype.slice;
 net = require('net');
 bp = require('./bson/binary_parser').BinaryParser;
+bu = require('./bson/binary_utils'),
 ee = require('events').EventEmitter;
 com = require('./commands').Commands;
 mr = require('./responses/mongo_reply').MongoReply;
@@ -31,18 +32,82 @@ con = function() {
   con.port = 27017;
   con.host = '127.0.0.1';
   con.recon = false;
+  
   con.prototype.open = function(host, port, recon) { //dunno if these work params work?
     con.port || (con.port = port);
     con.host || (con.host = host);
     con.recon = recon ? recon : con.recon;
+	
+	con.r = function(res) { // function to handle all responses from Mongo
+		if(con.c.br > 0 && con.c.som > 0){
+			var rb = con.c.som - con.c.br;
+			if(rb > res.length){
+				var b = new Buffer(con.c.b.length + res.length);
+				con.c.b.copy(b, 0,0, con.c.b.length);
+				res.copy(b, con.c.b.length,0, res.length);
+				con.c.b = b;
+				con.c.br = con.c.br + res.length
+			} else {
+				var b = new Buffer(con.c.b.length + res.length);
+				con.c.b.copy(b, 0,0, con.c.b.length);
+				res.copy(b, con.c.b.length,0, rb);
+				var r = new mr(b);
+				con.c.emit(r.responseTo.toString(),r);
+				con.c.b = new Buffer(0);
+				con.c.br = 0;
+				con.c.som = 0;
+				if(rb < res.length){
+					con.r(res.slice(rb, res.length));
+				}
+			}
+		} else {
+			if(con.c.sb.length > 0){
+				var b = new Buffer(con.c.sb.length + res.length);
+				con.c.sb.copy(b, 0,0, con.c.sb.length);
+				res.copy(b, con.c.sb.length,0, res.length);
+				res = b;
+				con.c.sb = new Buffer(0);
+			}
+			if(res.length > 4){
+				var som = bu.decodeUInt32(res, 0);
+				if(som > res.length){
+					var b = new Buffer(con.c.b.length + res.length);
+					con.c.b.copy(b, 0,0, con.c.b.length);
+					res.copy(b, con.c.b.length,0, res.length);
+					con.c.b = b;
+					con.c.br = res.length;
+					con.c.som = som;
+				} else if(som == res.length){
+					var r = new mr(res);
+					if(con.s){
+						con.c.emit(r.responseTo.toString(),r);
+					} else {
+						if(r.documents.length && r.documents[0].ismaster){
+							con.s = true;
+							console.log("connected!");
+							con.c.emit('connected',con.s);
+						} else {
+							con.s = false;
+						}
+					}
+				} else if(som < res.length){
+					var r = new mr(res.slice(0,som));
+					con.c.emit(r.responseTo.toString(),r);
+					con.r(res.slice(som,res.length));
+				}
+			} else {
+				con.c.sb = res;
+			}
+		}
+    };
+	
     con.c = new net.createConnection(con.port, con.host); //creates the connection
-    con.c.setEncoding('binary');
     con.c.addListener('connect', function() { // Mongo responds for the first time
-      var MasterCmd;
+	  var MasterCmd;
       console.log("connecting...");
-      con.c.setEncoding('binary');
       con.c.setTimeout(0);
       con.c.setNoDelay();
+	  
       MasterCmd = {
         collectionName: 'mongous.$cmd',
         queryOptions: 16,
@@ -54,6 +119,7 @@ con = function() {
         returnFieldSelector: null
       };
       return con.c.write(com.binary(MasterCmd, 2004, 0), 'binary'); // this makes us the master of Mongo
+	  
     });
     con.c.addListener('error', __bind(function(e) {
       return con.c.emit('error', e);
@@ -61,61 +127,12 @@ con = function() {
     con.c.addListener('close', __bind(function() {
       return con.c.emit('close');
     }, this));
-    con.r = function(res) { // function to handle all responses from Mongo
-      var bytr, r, som;
-      if (con.byt > 0 && con.som > 0) {
-        bytr = con.som - con.byt;
-        if (bytr > res.length) {
-          con.b += res;
-          con.byt += res.length;
-        } else {
-          con.b += res.substr(0, bytr);
-          r = new mr(con.b);	// translate from binary to JSON
-          con.c.emit(r.responseTo.toString(), r); // send the response to the unique find() that requested it for a callback
-          con.b = '';
-          con.byt = 0;
-          con.som = 0;
-        }
-        if (bytr < res.length) {
-          return con.r(res.substr(bytr, res.length - bytr));
-        }
-      } else {
-        if (con.bb.length > 0) {
-          res = con.bb + res;
-          con.bb = '';
-        }
-        if (res.length > 4) {
-          som = bp.toInt(res.substr(0, 4));
-          if (som > res.length) {
-            con.b += res;
-            con.byt = res.length;
-            return con.som = som;
-          } else if (som === res.length) {
-            r = new mr(res); // translate from binary to JSON
-            if (!con.s) { // response after the connection is established
-					if(r.documents[0] !== undefined) {
-	              if (r.documents[0].ismaster) {
-	                con.s = true; // therefore meaning we are connected and are master
-	                console.log("connected!");
-	                return con.c.emit('connected', con.s);
-	              } else {
-	                return con.s = false;
-	              }
-							}
-            } else {
-              return con.c.emit(r.responseTo.toString(), r);
-            }
-          } else if (som < res.length) {
-            r = new mr(res.substr(0, som)); // translate from binary to JSON
-            con.c.emit(r.responseTo.toString(), r); // during find() more request. //I think
-            return con.r(res.substr(som, res.length - som));
-          } else {
-            return s.bb = res;
-          }
-        }
-      }
-    };
-    return con.c.addListener('data', con.r); // listen for it!
+	con.c.som = 0;
+	con.c.br = 0;
+	con.c.b = new Buffer(0);
+	con.c.sb = '';
+    con.c.addListener('data', con.r); // listen for it!
+	return con.c;
   };
   con.prototype.close = function() {
     if (con.c) {
@@ -127,7 +144,8 @@ con = function() {
     try {
       return con.c.write(cmd, 'binary'); // send it to Mongo
     } catch (e) {
-      if (con.c._connecting) { // if we are in the middle of connecting
+		console.log("MONGOUS.con.send -> con.c.write fail");
+      if(con.c._connecting) { // if we are in the middle of connecting
         con.msg.push(cmd); // queue the commands in order
         return con.c.addListener('connected', __bind(function() { // listen for when we are connected
           var _results;
@@ -142,17 +160,15 @@ con = function() {
         if (con.c.currently_reconnecting === null) {
           con.c.currently_reconnecting = true;
           nc = net.createConnection(con.port, con.host);
-          nc.setEncoding('binary');
           return nc.addListener('connect', __bind(function() {
             var _results;
-            this.setEncoding('binary');
             this.setTimeout(0);
             this.setNoDelay();
-            this.addListener('data', con.c.receiveListener);
+            this.addListener('data', con.r);
             con.c = this;
             _results = [];
             while (con.msg.length > 0) {
-              _results.push(this.write(con.msg.shif(), 'binary'));
+              _results.push(this.write(con.msg.shift(), 'binary'));
             }
             return _results;
           }, this));
@@ -178,7 +194,7 @@ mongous = function() {
     e = false;
     if (con.c === null) { // if we haven't connected yet, then connect
       this.open();
-    }
+    } 
     if (s.length >= 80) {
       console.log("Error: '" + s + "' - Database name and collection exceed 80 character limit.");
       e = true;
@@ -190,18 +206,21 @@ mongous = function() {
     }
     this.db = s.slice(0, p);
     this.col = s.substr(p + 1);
-    if (this.col.search(/\$/) >= 0) {
-      if (this.col.search(/\$cmd/i) < 0) {
-        console.log("Error: '" + s + "' - cannot use '$' unless for commands.");
-        e = true;
-      } else {
-        console.log("Error: '" + s + "' - silent.");
-        e = true;
-      }
-    } else if (this.col.search(/^[a-z|\_]/i) < 0) {
-      console.log("Error: '" + s + "' - Collection must start with a letter or an underscore.");
-      e = true;
-    }
+		if(this.col != '$cmd') {
+			if (this.col.search(/\$/) >= 0) {
+				if (this.col.search(/\$cmd/i) < 0) {
+				console.log("Error: '" + s + "' - cannot use '$' unless for commands.");
+				e = true;
+				} else {
+				console.log("Error: '" + s + "' - silent.");
+				e = true;
+				}
+			} else 
+			if (this.col.search(/^[a-z|\_]/i) < 0) {
+				console.log("Error: '" + s + "' - Collection must start with a letter or an underscore.");
+				e = true;
+			}
+		}
     if (e) {
       this.db = '!';
       this.col = '$';
@@ -284,7 +303,7 @@ mongous = function() {
       it += msg.numberReturned;
       if (msg.more && o.lim == 0) {
         //lim = o.lim - it < 500 ? 500 : o.lim - it;
-        this.more(cmd.collectionName, 500, msg.cursorId, id);
+        this.more(cmd.collectionName, 500, msg.cursorID, id);
       } else {
         con.c.removeListener(id.toString(), con.c.listeners(id.toString())[0]);
       }

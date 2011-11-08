@@ -13,18 +13,18 @@
 // Copyright 2009 Google Inc. All Rights Reserved
 
 /**
- * @fileoverview Defines a exports.Long class for representing a 64-bit two's-complement
- * integer value, which faithfully simulates the behavior of a Java "long". This
- * implementation is derived from exports.LongLib in GWT.
+ * @fileoverview Defines a exports.Timestamp class for representing a 64-bit two's-complement
+ * integer value, which faithfully simulates the behavior of a Java "Timestamp". This
+ * implementation is derived from exports.TimestampLib in GWT.
  *
  */
 
 /**
  * Constructs a 64-bit two's-complement integer, given its low and high 32-bit
  * values as *signed* integers.  See the from* functions below for more
- * convenient ways of constructing exports.Longs.
+ * convenient ways of constructing exports.Timestamps.
  *
- * The internal representation of a long is the two given signed, 32-bit values.
+ * The internal representation of a Timestamp is the two given signed, 32-bit values.
  * We use 32-bit pieces because these are the size of integers on which
  * Javascript performs bit-operations.  For operations like addition and
  * multiplication, we split each number into 16-bit pieces, which can easily be
@@ -38,11 +38,11 @@
  * a positive number, it overflows back into a negative).  Not handling this
  * case would often result in infinite recursion.
  *
- * @param {number} low  The low (signed) 32 bits of the long.
- * @param {number} high  The high (signed) 32 bits of the long.
+ * @param {number} low  The low (signed) 32 bits of the Timestamp.
+ * @param {number} high  The high (signed) 32 bits of the Timestamp.
  * @constructor
  */
-exports.Long = function(low, high) {
+exports.Timestamp = function(low, high) {
   /**
    * @type {number}
    * @private
@@ -62,77 +62,77 @@ exports.Long = function(low, high) {
 
 
 /**
- * A cache of the exports.Long representations of small integer values.
+ * A cache of the exports.Timestamp representations of small integer values.
  * @type {Object}
  * @private
  */
-exports.Long.INT_CACHE_ = {};
+exports.Timestamp.INT_CACHE_ = {};
 
 
 /**
- * Returns a exports.Long representing the given (32-bit) integer value.
+ * Returns a exports.Timestamp representing the given (32-bit) integer value.
  * @param {number} value The 32-bit integer in question.
- * @return {exports.Long} The corresponding exports.Long value.
+ * @return {exports.Timestamp} The corresponding exports.Timestamp value.
  */
-exports.Long.fromInt = function(value) {
+exports.Timestamp.fromInt = function(value) {
   if (-128 <= value && value < 128) {
-    var cachedObj = exports.Long.INT_CACHE_[value];
+    var cachedObj = exports.Timestamp.INT_CACHE_[value];
     if (cachedObj) {
       return cachedObj;
     }
   }
 
-  var obj = new exports.Long(value | 0, value < 0 ? -1 : 0);
+  var obj = new exports.Timestamp(value | 0, value < 0 ? -1 : 0);
   if (-128 <= value && value < 128) {
-    exports.Long.INT_CACHE_[value] = obj;
+    exports.Timestamp.INT_CACHE_[value] = obj;
   }
   return obj;
 };
 
 
 /**
- * Returns a exports.Long representing the given value, provided that it is a finite
+ * Returns a exports.Timestamp representing the given value, provided that it is a finite
  * number.  Otherwise, zero is returned.
  * @param {number} value The number in question.
- * @return {exports.Long} The corresponding exports.Long value.
+ * @return {exports.Timestamp} The corresponding exports.Timestamp value.
  */
-exports.Long.fromNumber = function(value) {
+exports.Timestamp.fromNumber = function(value) {
   if (isNaN(value) || !isFinite(value)) {
-    return exports.Long.ZERO;
-  } else if (value <= -exports.Long.TWO_PWR_63_DBL_) {
-    return exports.Long.MIN_VALUE;
-  } else if (value + 1 >= exports.Long.TWO_PWR_63_DBL_) {
-    return exports.Long.MAX_VALUE;
+    return exports.Timestamp.ZERO;
+  } else if (value <= -exports.Timestamp.TWO_PWR_63_DBL_) {
+    return exports.Timestamp.MIN_VALUE;
+  } else if (value + 1 >= exports.Timestamp.TWO_PWR_63_DBL_) {
+    return exports.Timestamp.MAX_VALUE;
   } else if (value < 0) {
-    return exports.Long.fromNumber(-value).negate();
+    return exports.Timestamp.fromNumber(-value).negate();
   } else {
-    return new exports.Long(
-               (value % exports.Long.TWO_PWR_32_DBL_) | 0,
-               (value / exports.Long.TWO_PWR_32_DBL_) | 0);
+    return new exports.Timestamp(
+               (value % exports.Timestamp.TWO_PWR_32_DBL_) | 0,
+               (value / exports.Timestamp.TWO_PWR_32_DBL_) | 0);
   }
 };
 
 
 /**
- * Returns a exports.Long representing the 64-bit integer that comes by concatenating
+ * Returns a exports.Timestamp representing the 64-bit integer that comes by concatenating
  * the given high and low bits.  Each is assumed to use 32 bits.
  * @param {number} lowBits The low 32-bits.
  * @param {number} highBits The high 32-bits.
- * @return {exports.Long} The corresponding exports.Long value.
+ * @return {exports.Timestamp} The corresponding exports.Timestamp value.
  */
-exports.Long.fromBits = function(lowBits, highBits) {
-  return new exports.Long(lowBits, highBits);
+exports.Timestamp.fromBits = function(lowBits, highBits) {
+  return new exports.Timestamp(lowBits, highBits);
 };
 
 
 /**
- * Returns a exports.Long representation of the given string, written using the given
+ * Returns a exports.Timestamp representation of the given string, written using the given
  * radix.
- * @param {string} str The textual representation of the exports.Long.
+ * @param {string} str The textual representation of the exports.Timestamp.
  * @param {number} opt_radix The radix in which the text is written.
- * @return {exports.Long} The corresponding exports.Long value.
+ * @return {exports.Timestamp} The corresponding exports.Timestamp value.
  */
-exports.Long.fromString = function(str, opt_radix) {
+exports.Timestamp.fromString = function(str, opt_radix) {
   if (str.length == 0) {
     throw Error('number format error: empty string');
   }
@@ -143,25 +143,25 @@ exports.Long.fromString = function(str, opt_radix) {
   }
 
   if (str.charAt(0) == '-') {
-    return exports.Long.fromString(str.substring(1), radix).negate();
+    return exports.Timestamp.fromString(str.substring(1), radix).negate();
   } else if (str.indexOf('-') >= 0) {
     throw Error('number format error: interior "-" character: ' + str);
   }
 
   // Do several (8) digits each time through the loop, so as to
   // minimize the calls to the very expensive emulated div.
-  var radixToPower = exports.Long.fromNumber(Math.pow(radix, 8));
+  var radixToPower = exports.Timestamp.fromNumber(Math.pow(radix, 8));
 
-  var result = exports.Long.ZERO;
+  var result = exports.Timestamp.ZERO;
   for (var i = 0; i < str.length; i += 8) {
     var size = Math.min(8, str.length - i);
     var value = parseInt(str.substring(i, i + size), radix);
     if (size < 8) {
-      var power = exports.Long.fromNumber(Math.pow(radix, size));
-      result = result.multiply(power).add(exports.Long.fromNumber(value));
+      var power = exports.Timestamp.fromNumber(Math.pow(radix, size));
+      result = result.multiply(power).add(exports.Timestamp.fromNumber(value));
     } else {
       result = result.multiply(radixToPower);
-      result = result.add(exports.Long.fromNumber(value));
+      result = result.add(exports.Timestamp.fromNumber(value));
     }
   }
   return result;
@@ -178,88 +178,88 @@ exports.Long.fromString = function(str, opt_radix) {
  * @type {number}
  * @private
  */
-exports.Long.TWO_PWR_16_DBL_ = 1 << 16;
+exports.Timestamp.TWO_PWR_16_DBL_ = 1 << 16;
 
 /**
  * @type {number}
  * @private
  */
-exports.Long.TWO_PWR_24_DBL_ = 1 << 24;
+exports.Timestamp.TWO_PWR_24_DBL_ = 1 << 24;
 
 /**
  * @type {number}
  * @private
  */
-exports.Long.TWO_PWR_32_DBL_ =
-    exports.Long.TWO_PWR_16_DBL_ * exports.Long.TWO_PWR_16_DBL_;
+exports.Timestamp.TWO_PWR_32_DBL_ =
+    exports.Timestamp.TWO_PWR_16_DBL_ * exports.Timestamp.TWO_PWR_16_DBL_;
 
 /**
  * @type {number}
  * @private
  */
-exports.Long.TWO_PWR_31_DBL_ =
-    exports.Long.TWO_PWR_32_DBL_ / 2;
+exports.Timestamp.TWO_PWR_31_DBL_ =
+    exports.Timestamp.TWO_PWR_32_DBL_ / 2;
 
 /**
  * @type {number}
  * @private
  */
-exports.Long.TWO_PWR_48_DBL_ =
-    exports.Long.TWO_PWR_32_DBL_ * exports.Long.TWO_PWR_16_DBL_;
+exports.Timestamp.TWO_PWR_48_DBL_ =
+    exports.Timestamp.TWO_PWR_32_DBL_ * exports.Timestamp.TWO_PWR_16_DBL_;
 
 /**
  * @type {number}
  * @private
  */
-exports.Long.TWO_PWR_64_DBL_ =
-    exports.Long.TWO_PWR_32_DBL_ * exports.Long.TWO_PWR_32_DBL_;
+exports.Timestamp.TWO_PWR_64_DBL_ =
+    exports.Timestamp.TWO_PWR_32_DBL_ * exports.Timestamp.TWO_PWR_32_DBL_;
 
 /**
  * @type {number}
  * @private
  */
-exports.Long.TWO_PWR_63_DBL_ =
-    exports.Long.TWO_PWR_64_DBL_ / 2;
+exports.Timestamp.TWO_PWR_63_DBL_ =
+    exports.Timestamp.TWO_PWR_64_DBL_ / 2;
 
 
-/** @type {exports.Long} */
-exports.Long.ZERO = exports.Long.fromInt(0);
+/** @type {exports.Timestamp} */
+exports.Timestamp.ZERO = exports.Timestamp.fromInt(0);
 
-/** @type {exports.Long} */
-exports.Long.ONE = exports.Long.fromInt(1);
+/** @type {exports.Timestamp} */
+exports.Timestamp.ONE = exports.Timestamp.fromInt(1);
 
-/** @type {exports.Long} */
-exports.Long.NEG_ONE = exports.Long.fromInt(-1);
+/** @type {exports.Timestamp} */
+exports.Timestamp.NEG_ONE = exports.Timestamp.fromInt(-1);
 
-/** @type {exports.Long} */
-exports.Long.MAX_VALUE =
-    exports.Long.fromBits(0xFFFFFFFF | 0, 0x7FFFFFFF | 0);
+/** @type {exports.Timestamp} */
+exports.Timestamp.MAX_VALUE =
+    exports.Timestamp.fromBits(0xFFFFFFFF | 0, 0x7FFFFFFF | 0);
 
-/** @type {exports.Long} */
-exports.Long.MIN_VALUE = exports.Long.fromBits(0, 0x80000000 | 0);
+/** @type {exports.Timestamp} */
+exports.Timestamp.MIN_VALUE = exports.Timestamp.fromBits(0, 0x80000000 | 0);
 
 
 /**
- * @type {exports.Long}
+ * @type {exports.Timestamp}
  * @private
  */
-exports.Long.TWO_PWR_24_ = exports.Long.fromInt(1 << 24);
+exports.Timestamp.TWO_PWR_24_ = exports.Timestamp.fromInt(1 << 24);
 
 
 /** @return {number} The value, assuming it is a 32-bit integer. */
-exports.Long.prototype.toInt = function() {
+exports.Timestamp.prototype.toInt = function() {
   return this.low_;
 };
 
 
 /** @return {number} The closest floating-point representation to this value. */
-exports.Long.prototype.toNumber = function() {
-  return this.high_ * exports.Long.TWO_PWR_32_DBL_ +
+exports.Timestamp.prototype.toNumber = function() {
+  return this.high_ * exports.Timestamp.TWO_PWR_32_DBL_ +
          this.getLowBitsUnsigned();
 };
 
 /** convert code to JSON **/
-exports.Long.prototype.toJSON = function() {
+exports.Timestamp.prototype.toJSON = function() {
   return this.toString();
 }
 
@@ -267,7 +267,7 @@ exports.Long.prototype.toJSON = function() {
  * @param {number} opt_radix The radix in which the text should be written.
  * @return {string} The textual representation of this value.
  */
-exports.Long.prototype.toString = function(opt_radix) {
+exports.Timestamp.prototype.toString = function(opt_radix) {
   var radix = opt_radix || 10;
   if (radix < 2 || 36 < radix) {
     throw Error('radix out of range: ' + radix);
@@ -278,12 +278,12 @@ exports.Long.prototype.toString = function(opt_radix) {
   }
 
   if (this.isNegative()) {
-    if (this.equals(exports.Long.MIN_VALUE)) {
-      // We need to change the exports.Long value before it can be negated, so we remove
+    if (this.equals(exports.Timestamp.MIN_VALUE)) {
+      // We need to change the exports.Timestamp value before it can be negated, so we remove
       // the bottom-most digit in this base and then recurse to do the rest.
-      var radixLong = exports.Long.fromNumber(radix);
-      var div = this.div(radixLong);
-      var rem = div.multiply(radixLong).subtract(this);
+      var radixTimestamp = exports.Timestamp.fromNumber(radix);
+      var div = this.div(radixTimestamp);
+      var rem = div.multiply(radixTimestamp).subtract(this);
       return div.toString(radix) + rem.toInt().toString(radix);
     } else {
       return '-' + this.negate().toString(radix);
@@ -292,7 +292,7 @@ exports.Long.prototype.toString = function(opt_radix) {
 
   // Do several (6) digits each time through the loop, so as to
   // minimize the calls to the very expensive emulated div.
-  var radixToPower = exports.Long.fromNumber(Math.pow(radix, 6));
+  var radixToPower = exports.Timestamp.fromNumber(Math.pow(radix, 6));
 
   var rem = this;
   var result = '';
@@ -315,31 +315,31 @@ exports.Long.prototype.toString = function(opt_radix) {
 
 
 /** @return {number} The high 32-bits as a signed value. */
-exports.Long.prototype.getHighBits = function() {
+exports.Timestamp.prototype.getHighBits = function() {
   return this.high_;
 };
 
 
 /** @return {number} The low 32-bits as a signed value. */
-exports.Long.prototype.getLowBits = function() {
+exports.Timestamp.prototype.getLowBits = function() {
   return this.low_;
 };
 
 
 /** @return {number} The low 32-bits as an unsigned value. */
-exports.Long.prototype.getLowBitsUnsigned = function() {
+exports.Timestamp.prototype.getLowBitsUnsigned = function() {
   return (this.low_ >= 0) ?
-      this.low_ : exports.Long.TWO_PWR_32_DBL_ + this.low_;
+      this.low_ : exports.Timestamp.TWO_PWR_32_DBL_ + this.low_;
 };
 
 
 /**
  * @return {number} Returns the number of bits needed to represent the absolute
- *     value of this exports.Long.
+ *     value of this exports.Timestamp.
  */
-exports.Long.prototype.getNumBitsAbs = function() {
+exports.Timestamp.prototype.getNumBitsAbs = function() {
   if (this.isNegative()) {
-    if (this.equals(exports.Long.MIN_VALUE)) {
+    if (this.equals(exports.Timestamp.MIN_VALUE)) {
       return 64;
     } else {
       return this.negate().getNumBitsAbs();
@@ -357,84 +357,84 @@ exports.Long.prototype.getNumBitsAbs = function() {
 
 
 /** @return {boolean} Whether this value is zero. */
-exports.Long.prototype.isZero = function() {
+exports.Timestamp.prototype.isZero = function() {
   return this.high_ == 0 && this.low_ == 0;
 };
 
 
 /** @return {boolean} Whether this value is negative. */
-exports.Long.prototype.isNegative = function() {
+exports.Timestamp.prototype.isNegative = function() {
   return this.high_ < 0;
 };
 
 
 /** @return {boolean} Whether this value is odd. */
-exports.Long.prototype.isOdd = function() {
+exports.Timestamp.prototype.isOdd = function() {
   return (this.low_ & 1) == 1;
 };
 
 
 /**
- * @param {exports.Long} other exports.Long to compare against.
- * @return {boolean} Whether this exports.Long equals the other.
+ * @param {exports.Timestamp} other exports.Timestamp to compare against.
+ * @return {boolean} Whether this exports.Timestamp equals the other.
  */
-exports.Long.prototype.equals = function(other) {
+exports.Timestamp.prototype.equals = function(other) {
   return (this.high_ == other.high_) && (this.low_ == other.low_);
 };
 
 
 /**
- * @param {exports.Long} other exports.Long to compare against.
- * @return {boolean} Whether this exports.Long does not equal the other.
+ * @param {exports.Timestamp} other exports.Timestamp to compare against.
+ * @return {boolean} Whether this exports.Timestamp does not equal the other.
  */
-exports.Long.prototype.notEquals = function(other) {
+exports.Timestamp.prototype.notEquals = function(other) {
   return (this.high_ != other.high_) || (this.low_ != other.low_);
 };
 
 
 /**
- * @param {exports.Long} other exports.Long to compare against.
- * @return {boolean} Whether this exports.Long is less than the other.
+ * @param {exports.Timestamp} other exports.Timestamp to compare against.
+ * @return {boolean} Whether this exports.Timestamp is less than the other.
  */
-exports.Long.prototype.lessThan = function(other) {
+exports.Timestamp.prototype.lessThan = function(other) {
   return this.compare(other) < 0;
 };
 
 
 /**
- * @param {exports.Long} other exports.Long to compare against.
- * @return {boolean} Whether this exports.Long is less than or equal to the other.
+ * @param {exports.Timestamp} other exports.Timestamp to compare against.
+ * @return {boolean} Whether this exports.Timestamp is less than or equal to the other.
  */
-exports.Long.prototype.lessThanOrEqual = function(other) {
+exports.Timestamp.prototype.lessThanOrEqual = function(other) {
   return this.compare(other) <= 0;
 };
 
 
 /**
- * @param {exports.Long} other exports.Long to compare against.
- * @return {boolean} Whether this exports.Long is greater than the other.
+ * @param {exports.Timestamp} other exports.Timestamp to compare against.
+ * @return {boolean} Whether this exports.Timestamp is greater than the other.
  */
-exports.Long.prototype.greaterThan = function(other) {
+exports.Timestamp.prototype.greaterThan = function(other) {
   return this.compare(other) > 0;
 };
 
 
 /**
- * @param {exports.Long} other exports.Long to compare against.
- * @return {boolean} Whether this exports.Long is greater than or equal to the other.
+ * @param {exports.Timestamp} other exports.Timestamp to compare against.
+ * @return {boolean} Whether this exports.Timestamp is greater than or equal to the other.
  */
-exports.Long.prototype.greaterThanOrEqual = function(other) {
+exports.Timestamp.prototype.greaterThanOrEqual = function(other) {
   return this.compare(other) >= 0;
 };
 
 
 /**
- * Compares this exports.Long with the given one.
- * @param {exports.Long} other exports.Long to compare against.
+ * Compares this exports.Timestamp with the given one.
+ * @param {exports.Timestamp} other exports.Timestamp to compare against.
  * @return {number} 0 if they are the same, 1 if the this is greater, and -1
  *     if the given one is greater.
  */
-exports.Long.prototype.compare = function(other) {
+exports.Timestamp.prototype.compare = function(other) {
   if (this.equals(other)) {
     return 0;
   }
@@ -457,22 +457,22 @@ exports.Long.prototype.compare = function(other) {
 };
 
 
-/** @return {exports.Long} The negation of this value. */
-exports.Long.prototype.negate = function() {
-  if (this.equals(exports.Long.MIN_VALUE)) {
-    return exports.Long.MIN_VALUE;
+/** @return {exports.Timestamp} The negation of this value. */
+exports.Timestamp.prototype.negate = function() {
+  if (this.equals(exports.Timestamp.MIN_VALUE)) {
+    return exports.Timestamp.MIN_VALUE;
   } else {
-    return this.not().add(exports.Long.ONE);
+    return this.not().add(exports.Timestamp.ONE);
   }
 };
 
 
 /**
- * Returns the sum of this and the given exports.Long.
- * @param {exports.Long} other exports.Long to add to this one.
- * @return {exports.Long} The sum of this and the given exports.Long.
+ * Returns the sum of this and the given exports.Timestamp.
+ * @param {exports.Timestamp} other exports.Timestamp to add to this one.
+ * @return {exports.Timestamp} The sum of this and the given exports.Timestamp.
  */
-exports.Long.prototype.add = function(other) {
+exports.Timestamp.prototype.add = function(other) {
   // Divide each number into 4 chunks of 16 bits, and then sum the chunks.
 
   var a48 = this.high_ >>> 16;
@@ -497,36 +497,36 @@ exports.Long.prototype.add = function(other) {
   c32 &= 0xFFFF;
   c48 += a48 + b48;
   c48 &= 0xFFFF;
-  return exports.Long.fromBits((c16 << 16) | c00, (c48 << 16) | c32);
+  return exports.Timestamp.fromBits((c16 << 16) | c00, (c48 << 16) | c32);
 };
 
 
 /**
- * Returns the difference of this and the given exports.Long.
- * @param {exports.Long} other exports.Long to subtract from this.
- * @return {exports.Long} The difference of this and the given exports.Long.
+ * Returns the difference of this and the given exports.Timestamp.
+ * @param {exports.Timestamp} other exports.Timestamp to subtract from this.
+ * @return {exports.Timestamp} The difference of this and the given exports.Timestamp.
  */
-exports.Long.prototype.subtract = function(other) {
+exports.Timestamp.prototype.subtract = function(other) {
   return this.add(other.negate());
 };
 
 
 /**
- * Returns the product of this and the given long.
- * @param {exports.Long} other exports.Long to multiply with this.
- * @return {exports.Long} The product of this and the other.
+ * Returns the product of this and the given Timestamp.
+ * @param {exports.Timestamp} other exports.Timestamp to multiply with this.
+ * @return {exports.Timestamp} The product of this and the other.
  */
-exports.Long.prototype.multiply = function(other) {
+exports.Timestamp.prototype.multiply = function(other) {
   if (this.isZero()) {
-    return exports.Long.ZERO;
+    return exports.Timestamp.ZERO;
   } else if (other.isZero()) {
-    return exports.Long.ZERO;
+    return exports.Timestamp.ZERO;
   }
 
-  if (this.equals(exports.Long.MIN_VALUE)) {
-    return other.isOdd() ? exports.Long.MIN_VALUE : exports.Long.ZERO;
-  } else if (other.equals(exports.Long.MIN_VALUE)) {
-    return this.isOdd() ? exports.Long.MIN_VALUE : exports.Long.ZERO;
+  if (this.equals(exports.Timestamp.MIN_VALUE)) {
+    return other.isOdd() ? exports.Timestamp.MIN_VALUE : exports.Timestamp.ZERO;
+  } else if (other.equals(exports.Timestamp.MIN_VALUE)) {
+    return this.isOdd() ? exports.Timestamp.MIN_VALUE : exports.Timestamp.ZERO;
   }
 
   if (this.isNegative()) {
@@ -539,13 +539,13 @@ exports.Long.prototype.multiply = function(other) {
     return this.multiply(other.negate()).negate();
   }
 
-  // If both longs are small, use float multiplication
-  if (this.lessThan(exports.Long.TWO_PWR_24_) &&
-      other.lessThan(exports.Long.TWO_PWR_24_)) {
-    return exports.Long.fromNumber(this.toNumber() * other.toNumber());
+  // If both Timestamps are small, use float multiplication
+  if (this.lessThan(exports.Timestamp.TWO_PWR_24_) &&
+      other.lessThan(exports.Timestamp.TWO_PWR_24_)) {
+    return exports.Timestamp.fromNumber(this.toNumber() * other.toNumber());
   }
 
-  // Divide each long into 4 chunks of 16 bits, and then add up 4x4 products.
+  // Divide each Timestamp into 4 chunks of 16 bits, and then add up 4x4 products.
   // We can skip products that would overflow.
 
   var a48 = this.high_ >>> 16;
@@ -579,42 +579,42 @@ exports.Long.prototype.multiply = function(other) {
   c32 &= 0xFFFF;
   c48 += a48 * b00 + a32 * b16 + a16 * b32 + a00 * b48;
   c48 &= 0xFFFF;
-  return exports.Long.fromBits((c16 << 16) | c00, (c48 << 16) | c32);
+  return exports.Timestamp.fromBits((c16 << 16) | c00, (c48 << 16) | c32);
 };
 
 
 /**
- * Returns this exports.Long divided by the given one.
- * @param {exports.Long} other exports.Long by which to divide.
- * @return {exports.Long} This exports.Long divided by the given one.
+ * Returns this exports.Timestamp divided by the given one.
+ * @param {exports.Timestamp} other exports.Timestamp by which to divide.
+ * @return {exports.Timestamp} This exports.Timestamp divided by the given one.
  */
-exports.Long.prototype.div = function(other) {
+exports.Timestamp.prototype.div = function(other) {
   if (other.isZero()) {
     throw Error('division by zero');
   } else if (this.isZero()) {
-    return exports.Long.ZERO;
+    return exports.Timestamp.ZERO;
   }
 
-  if (this.equals(exports.Long.MIN_VALUE)) {
-    if (other.equals(exports.Long.ONE) ||
-        other.equals(exports.Long.NEG_ONE)) {
-      return exports.Long.MIN_VALUE;  // recall that -MIN_VALUE == MIN_VALUE
-    } else if (other.equals(exports.Long.MIN_VALUE)) {
-      return exports.Long.ONE;
+  if (this.equals(exports.Timestamp.MIN_VALUE)) {
+    if (other.equals(exports.Timestamp.ONE) ||
+        other.equals(exports.Timestamp.NEG_ONE)) {
+      return exports.Timestamp.MIN_VALUE;  // recall that -MIN_VALUE == MIN_VALUE
+    } else if (other.equals(exports.Timestamp.MIN_VALUE)) {
+      return exports.Timestamp.ONE;
     } else {
       // At this point, we have |other| >= 2, so |this/other| < |MIN_VALUE|.
       var halfThis = this.shiftRight(1);
       var approx = halfThis.div(other).shiftLeft(1);
-      if (approx.equals(exports.Long.ZERO)) {
-        return other.isNegative() ? exports.Long.ONE : exports.Long.NEG_ONE;
+      if (approx.equals(exports.Timestamp.ZERO)) {
+        return other.isNegative() ? exports.Timestamp.ONE : exports.Timestamp.NEG_ONE;
       } else {
         var rem = this.subtract(other.multiply(approx));
         var result = approx.add(rem.div(other));
         return result;
       }
     }
-  } else if (other.equals(exports.Long.MIN_VALUE)) {
-    return exports.Long.ZERO;
+  } else if (other.equals(exports.Timestamp.MIN_VALUE)) {
+    return exports.Timestamp.ZERO;
   }
 
   if (this.isNegative()) {
@@ -632,7 +632,7 @@ exports.Long.prototype.div = function(other) {
   // into the result, and subtract it from the remainder.  It is critical that
   // the approximate value is less than or equal to the real value so that the
   // remainder never becomes negative.
-  var res = exports.Long.ZERO;
+  var res = exports.Timestamp.ZERO;
   var rem = this;
   while (rem.greaterThanOrEqual(other)) {
     // Approximate the result of division. This may be a little greater or
@@ -646,18 +646,18 @@ exports.Long.prototype.div = function(other) {
 
     // Decrease the approximation until it is smaller than the remainder.  Note
     // that if it is too large, the product overflows and is negative.
-    var approxRes = exports.Long.fromNumber(approx);
+    var approxRes = exports.Timestamp.fromNumber(approx);
     var approxRem = approxRes.multiply(other);
     while (approxRem.isNegative() || approxRem.greaterThan(rem)) {
       approx -= delta;
-      approxRes = exports.Long.fromNumber(approx);
+      approxRes = exports.Timestamp.fromNumber(approx);
       approxRem = approxRes.multiply(other);
     }
 
     // We know the answer can't be zero... and actually, zero would cause
     // infinite recursion since we would make no progress.
     if (approxRes.isZero()) {
-      approxRes = exports.Long.ONE;
+      approxRes = exports.Timestamp.ONE;
     }
 
     res = res.add(approxRes);
@@ -668,60 +668,60 @@ exports.Long.prototype.div = function(other) {
 
 
 /**
- * Returns this exports.Long modulo the given one.
- * @param {exports.Long} other exports.Long by which to mod.
- * @return {exports.Long} This exports.Long modulo the given one.
+ * Returns this exports.Timestamp modulo the given one.
+ * @param {exports.Timestamp} other exports.Timestamp by which to mod.
+ * @return {exports.Timestamp} This exports.Timestamp modulo the given one.
  */
-exports.Long.prototype.modulo = function(other) {
+exports.Timestamp.prototype.modulo = function(other) {
   return this.subtract(this.div(other).multiply(other));
 };
 
 
-/** @return {exports.Long} The bitwise-NOT of this value. */
-exports.Long.prototype.not = function() {
-  return exports.Long.fromBits(~this.low_, ~this.high_);
+/** @return {exports.Timestamp} The bitwise-NOT of this value. */
+exports.Timestamp.prototype.not = function() {
+  return exports.Timestamp.fromBits(~this.low_, ~this.high_);
 };
 
 
 /**
- * Returns the bitwise-AND of this exports.Long and the given one.
- * @param {exports.Long} other The exports.Long with which to AND.
- * @return {exports.Long} The bitwise-AND of this and the other.
+ * Returns the bitwise-AND of this exports.Timestamp and the given one.
+ * @param {exports.Timestamp} other The exports.Timestamp with which to AND.
+ * @return {exports.Timestamp} The bitwise-AND of this and the other.
  */
-exports.Long.prototype.and = function(other) {
-  return exports.Long.fromBits(this.low_ & other.low_,
+exports.Timestamp.prototype.and = function(other) {
+  return exports.Timestamp.fromBits(this.low_ & other.low_,
                                  this.high_ & other.high_);
 };
 
 
 /**
- * Returns the bitwise-OR of this exports.Long and the given one.
- * @param {exports.Long} other The exports.Long with which to OR.
- * @return {exports.Long} The bitwise-OR of this and the other.
+ * Returns the bitwise-OR of this exports.Timestamp and the given one.
+ * @param {exports.Timestamp} other The exports.Timestamp with which to OR.
+ * @return {exports.Timestamp} The bitwise-OR of this and the other.
  */
-exports.Long.prototype.or = function(other) {
-  return exports.Long.fromBits(this.low_ | other.low_,
+exports.Timestamp.prototype.or = function(other) {
+  return exports.Timestamp.fromBits(this.low_ | other.low_,
                                  this.high_ | other.high_);
 };
 
 
 /**
- * Returns the bitwise-XOR of this exports.Long and the given one.
- * @param {exports.Long} other The exports.Long with which to XOR.
- * @return {exports.Long} The bitwise-XOR of this and the other.
+ * Returns the bitwise-XOR of this exports.Timestamp and the given one.
+ * @param {exports.Timestamp} other The exports.Timestamp with which to XOR.
+ * @return {exports.Timestamp} The bitwise-XOR of this and the other.
  */
-exports.Long.prototype.xor = function(other) {
-  return exports.Long.fromBits(this.low_ ^ other.low_,
+exports.Timestamp.prototype.xor = function(other) {
+  return exports.Timestamp.fromBits(this.low_ ^ other.low_,
                                  this.high_ ^ other.high_);
 };
 
 
 /**
- * Returns this exports.Long with bits shifted to the left by the given amount.
+ * Returns this exports.Timestamp with bits shifted to the left by the given amount.
  * @param {number} numBits The number of bits by which to shift.
- * @return {exports.Long} This shifted to the left by the given amount.
+ * @return {exports.Timestamp} This shifted to the left by the given amount.
  */
-exports.Long.prototype.shiftLeft = function(numBits) {
+exports.Timestamp.prototype.shiftLeft = function(numBits) {
   numBits &= 63;
   if (numBits == 0) {
     return this;
@@ -729,22 +729,22 @@ exports.Long.prototype.shiftLeft = function(numBits) {
     var low = this.low_;
     if (numBits < 32) {
       var high = this.high_;
-      return exports.Long.fromBits(
+      return exports.Timestamp.fromBits(
                  low << numBits,
                  (high << numBits) | (low >>> (32 - numBits)));
     } else {
-      return exports.Long.fromBits(0, low << (numBits - 32));
+      return exports.Timestamp.fromBits(0, low << (numBits - 32));
     }
   }
 };
 
 
 /**
- * Returns this exports.Long with bits shifted to the right by the given amount.
+ * Returns this exports.Timestamp with bits shifted to the right by the given amount.
  * @param {number} numBits The number of bits by which to shift.
- * @return {exports.Long} This shifted to the right by the given amount.
+ * @return {exports.Timestamp} This shifted to the right by the given amount.
  */
-exports.Long.prototype.shiftRight = function(numBits) {
+exports.Timestamp.prototype.shiftRight = function(numBits) {
   numBits &= 63;
   if (numBits == 0) {
     return this;
@@ -752,11 +752,11 @@ exports.Long.prototype.shiftRight = function(numBits) {
     var high = this.high_;
     if (numBits < 32) {
       var low = this.low_;
-      return exports.Long.fromBits(
+      return exports.Timestamp.fromBits(
                  (low >>> numBits) | (high << (32 - numBits)),
                  high >> numBits);
     } else {
-      return exports.Long.fromBits(
+      return exports.Timestamp.fromBits(
                  high >> (numBits - 32),
                  high >= 0 ? 0 : -1);
     }
@@ -765,13 +765,13 @@ exports.Long.prototype.shiftRight = function(numBits) {
 
 
 /**
- * Returns this exports.Long with bits shifted to the right by the given amount, with
+ * Returns this exports.Timestamp with bits shifted to the right by the given amount, with
  * the new top bits matching the current sign bit.
  * @param {number} numBits The number of bits by which to shift.
- * @return {exports.Long} This shifted to the right by the given amount, with
+ * @return {exports.Timestamp} This shifted to the right by the given amount, with
  *     zeros placed into the new leading bits.
  */
-exports.Long.prototype.shiftRightUnsigned = function(numBits) {
+exports.Timestamp.prototype.shiftRightUnsigned = function(numBits) {
   numBits &= 63;
   if (numBits == 0) {
     return this;
@@ -779,13 +779,13 @@ exports.Long.prototype.shiftRightUnsigned = function(numBits) {
     var high = this.high_;
     if (numBits < 32) {
       var low = this.low_;
-      return exports.Long.fromBits(
+      return exports.Timestamp.fromBits(
                  (low >>> numBits) | (high << (32 - numBits)),
                  high >>> numBits);
     } else if (numBits == 32) {
-      return exports.Long.fromBits(high, 0);
+      return exports.Timestamp.fromBits(high, 0);
     } else {
-      return exports.Long.fromBits(high >>> (numBits - 32), 0);
+      return exports.Timestamp.fromBits(high >>> (numBits - 32), 0);
     }
   }
 };
