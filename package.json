@@ -1,5 +1,5 @@
 { "name": "mongous"
-, "version": "0.2.0"
+, "version": "0.2.1"
 , "author": "Mark Nadal"
 , "description": "Simple MongoDB driver"
 , "homepage": "http://github.com/amark/mongous"

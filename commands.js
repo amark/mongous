@@ -304,7 +304,7 @@ update =  function(c) {
 
 remove =  function(c) {
   // Calculate total length of the document
-  var totalLengthOfCommand = 4 + Buffer.byteLength(c.collectionName) + 1 + 4 + BSON.calculateObjectSize(c.selector) + (4 * 4);
+  var totalLengthOfCommand = 4 + Buffer.byteLength(c.collectionName) + 1 + 4 + BSON.calculateObjectSize(c.spec||c.selector) + (4 * 4);
   // Let's build the single pass buffer command
   var _index = 0;
   var _command = new Buffer(totalLengthOfCommand);
@@ -352,7 +352,7 @@ remove =  function(c) {
   _command[_index++] = 0;
   
   // Serialize the selector
-  var documentLength = BSON.serializeWithBufferAndIndex(c.selector, c.checkKeys, _command, _index) - _index + 1;
+  var documentLength = BSON.serializeWithBufferAndIndex(c.spec||c.selector, c.checkKeys, _command, _index) - _index + 1;
   // Write the length to the document
   _command[_index + 3] = (documentLength >> 24) & 0xff;     
   _command[_index + 2] = (documentLength >> 16) & 0xff;
