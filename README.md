@@ -88,5 +88,12 @@ Done. App development has never felt as close to the shell as this! Making it a 
 	- Example
 		<code>db('blog.$cmd').find({drop:"users"},1)</code><br/>
 		drops the users collection, deleting it.
+- **Authentication** <code>db('blog.$cmd').auth(username,password,callback)</code>
+	- username, password <br/>
+		username and password of the 'blog' database
+	- callback <br/>
+		the callback function when authentication is finished.
+	- Example
+		- <code>db('blog.$cmd').auth('user','pass',function(reply){})</code><br/>
 			
 Mongous is a reduction ('less is more') of node-mongodb-driver by Christian Kvalheim.
