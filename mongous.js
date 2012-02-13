@@ -14,6 +14,7 @@ ee = require('events').EventEmitter;
 com = require('./commands').Commands;
 mr = require('./responses/mongo_reply').MongoReply;
 Long = require('./goog/math/long').Long; 
+MD5 = require('./crypto/MD5').MD5;
 
 con = function() {
   function con() {
@@ -37,7 +38,6 @@ con = function() {
     con.port || (con.port = port);
     con.host || (con.host = host);
     con.recon = recon ? recon : con.recon;
-	
 	con.r = function(res) { // function to handle all responses from Mongo
 		if(con.c.br > 0 && con.c.som > 0){
 			var rb = con.c.som - con.c.br;
@@ -217,7 +217,7 @@ mongous = function() {
 				}
 			} else 
 			if (this.col.search(/^[a-z|\_]/i) < 0) {
-				console.log("Error: '" + s + "' - Collection must start with a letter or an underscore.");
+				console.log("Error: '" + s + "' - Collection must start with a letter or an$ underscore.");
 				e = true;
 			}
 		}
@@ -227,6 +227,28 @@ mongous = function() {
     }
     this;
   }
+  mongous.prototype.auth = function() {
+	  var usr, pwd, self, fn;
+	  usr = arguments[0], pwd = arguments[1], fn = arguments[2];
+	  if(!usr || !pwd) {
+		  console.log("User and password required.");
+		  return false;
+	  }
+	  self = this;
+	  this.find({getnonce:1}, function(r) {
+		  var n = r.documents[0].nonce;
+		  self.find({
+			  authenticate: 1,
+			  user: usr,
+			  nonce: n,
+			  key: MD5.hex_md5(n+usr+MD5.hex_md5(usr+":mongo:"+pwd))
+		  }, function(res) {
+			  if(fn) {
+				return fn(res);
+			  }
+		  }, 1);
+	  }, 1);
+  } 
   mongous.prototype.open = function() {
     return mongous.__super__.open.apply(this, arguments);
   };
@@ -235,6 +257,7 @@ mongous = function() {
       return false;
     } else { // safe :)
       id || (id = this.id());
+
       return mongous.__super__.send.call(this, com.binary(cmd, op, id)); // convert to binary, send to connection
     }
   };
