@@ -383,7 +383,7 @@ mongous = function() {
     return this.emit('log', " - Error: " + error.toString().replace(/error:/i, ''));
   };
   mongous.prototype.id = function() {
-    return Math.round(Math.exp(Math.random() * Math.log(100000)));
+	return Math.round(Math.random() * 80000);
   };
   return mongous;
 }();
