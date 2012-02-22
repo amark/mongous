@@ -14,7 +14,7 @@ ee = require('events').EventEmitter;
 com = require('./commands').Commands;
 mr = require('./responses/mongo_reply').MongoReply;
 Long = require('./goog/math/long').Long; 
-MD5 = require('./crypto/MD5').MD5;
+MD5 = require('./crypto/md5').MD5;
 
 con = function() {
   function con() {
@@ -41,7 +41,7 @@ con = function() {
 	con.r = function(res) { // function to handle all responses from Mongo
 		if(con.c.br > 0 && con.c.som > 0){
 			var rb = con.c.som - con.c.br;
-			if(rb > res.length){
+			if(rb > res.length) {
 				var b = new Buffer(con.c.b.length + res.length);
 				con.c.b.copy(b, 0,0, con.c.b.length);
 				res.copy(b, con.c.b.length,0, res.length);
@@ -77,8 +77,8 @@ con = function() {
 					con.c.b = b;
 					con.c.br = res.length;
 					con.c.som = som;
-				} else if(som == res.length){
-					var r = new mr(res);
+				} else if(som <= res.length){
+					var r = new mr(res.slice(0,som));
 					if(con.s){
 						con.c.emit(r.responseTo.toString(),r);
 					} else {
@@ -90,10 +90,9 @@ con = function() {
 							con.s = false;
 						}
 					}
-				} else if(som < res.length){
-					var r = new mr(res.slice(0,som));
-					con.c.emit(r.responseTo.toString(),r);
-					con.r(res.slice(som,res.length));
+					if(som < res.length) {
+						con.r(res.slice(som,res.length));
+					}
 				}
 			} else {
 				con.c.sb = res;
@@ -217,7 +216,7 @@ mongous = function() {
 				}
 			} else 
 			if (this.col.search(/^[a-z|\_]/i) < 0) {
-				console.log("Error: '" + s + "' - Collection must start with a letter or an$ underscore.");
+				console.log("Error: '" + s + "' - Collection must start with a letter or an underscore.");
 				e = true;
 			}
 		}
@@ -383,7 +382,7 @@ mongous = function() {
     return this.emit('log', " - Error: " + error.toString().replace(/error:/i, ''));
   };
   mongous.prototype.id = function() {
-	return Math.round(Math.random() * 80000);
+    return Math.round(Math.random() * 80000);
   };
   return mongous;
 }();
