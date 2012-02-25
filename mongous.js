@@ -14,7 +14,7 @@ ee = require('events').EventEmitter;
 com = require('./commands').Commands;
 mr = require('./responses/mongo_reply').MongoReply;
 Long = require('./goog/math/long').Long; 
-MD5 = require('./crypto/MD5').MD5;
+MD5 = require('./crypto/md5').MD5;
 
 con = function() {
   function con() {
