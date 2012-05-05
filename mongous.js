@@ -13,6 +13,7 @@ bu = require('./bson/binary_utils'),
 ee = require('events').EventEmitter;
 com = require('./commands').Commands;
 mr = require('./responses/mongo_reply').MongoReply;
+reply = require('./reply');
 Long = require('./goog/math/long').Long; 
 MD5 = require('./crypto/md5').MD5;
 
@@ -34,71 +35,13 @@ con = function() {
   con.host = '127.0.0.1';
   con.recon = false;
   
-  con.prototype.open = function(host, port, recon) { //dunno if these work params work?
-    con.port || (con.port = port);
-    con.host || (con.host = host);
+  con.prototype.open = function(host, port, recon) {
+		con.port = port || con.port;
+		con.host = host || con.host;
     con.recon = recon ? recon : con.recon;
-	con.r = function(res) { // function to handle all responses from Mongo
-		if(con.c.br > 0 && con.c.som > 0){
-			var rb = con.c.som - con.c.br;
-			if(rb > res.length) {
-				var b = new Buffer(con.c.b.length + res.length);
-				con.c.b.copy(b, 0,0, con.c.b.length);
-				res.copy(b, con.c.b.length,0, res.length);
-				con.c.b = b;
-				con.c.br = con.c.br + res.length
-			} else {
-				var b = new Buffer(con.c.b.length + res.length);
-				con.c.b.copy(b, 0,0, con.c.b.length);
-				res.copy(b, con.c.b.length,0, rb);
-				var r = new mr(b);
-				con.c.emit(r.responseTo.toString(),r);
-				con.c.b = new Buffer(0);
-				con.c.br = 0;
-				con.c.som = 0;
-				if(rb < res.length){
-					con.r(res.slice(rb, res.length));
-				}
-			}
-		} else {
-			if(con.c.sb.length > 0){
-				var b = new Buffer(con.c.sb.length + res.length);
-				con.c.sb.copy(b, 0,0, con.c.sb.length);
-				res.copy(b, con.c.sb.length,0, res.length);
-				res = b;
-				con.c.sb = new Buffer(0);
-			}
-			if(res.length > 4){
-				var som = bu.decodeUInt32(res, 0);
-				if(som > res.length){
-					var b = new Buffer(con.c.b.length + res.length);
-					con.c.b.copy(b, 0,0, con.c.b.length);
-					res.copy(b, con.c.b.length,0, res.length);
-					con.c.b = b;
-					con.c.br = res.length;
-					con.c.som = som;
-				} else if(som <= res.length){
-					var r = new mr(res.slice(0,som));
-					if(con.s){
-						con.c.emit(r.responseTo.toString(),r);
-					} else {
-						if(r.documents.length && r.documents[0].ismaster){
-							con.s = true;
-							console.log("connected!");
-							con.c.emit('connected',con.s);
-						} else {
-							con.s = false;
-						}
-					}
-					if(som < res.length) {
-						con.r(res.slice(som,res.length));
-					}
-				}
-			} else {
-				con.c.sb = res;
-			}
-		}
-    };
+		con.r = function(res){ // function to handle all responses from Mongo
+			reply(con,res);
+		};
 	
     con.c = new net.createConnection(con.port, con.host); //creates the connection
     con.c.addListener('connect', function() { // Mongo responds for the first time
@@ -192,7 +135,7 @@ mongous = function() {
     var e, p;
     e = false;
     if (con.c === null) { // if we haven't connected yet, then connect
-      this.open();
+      this.open(con.host,con.port);
     } 
     if (s.length >= 80) {
       console.log("Error: '" + s + "' - Database name and collection exceed 80 character limit.");

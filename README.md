@@ -95,5 +95,7 @@ Done. App development has never felt as close to the shell as this! Making it a 
 		the callback function when authentication is finished.
 	- Example
 		- <code>db('blog.$cmd').auth('user','pass',function(reply){})</code><br/>
+- **Open** <code>db().open(host,port)</code>
+	- Only necessary to call if you explicitly want a different host and port, elsewise it lazy opens.
 			
 Mongous is a reduction ('less is more') of node-mongodb-driver by Christian Kvalheim.
