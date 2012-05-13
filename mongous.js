@@ -17,6 +17,9 @@ reply = require('./reply');
 Long = require('./goog/math/long').Long; 
 MD5 = require('./crypto/md5').MD5;
 
+var log = function(s){
+	console.log(s);
+};
 con = function() {
   function con() {
     con.__super__.constructor.apply(this, arguments);
@@ -27,6 +30,7 @@ con = function() {
   con.s = false;
   con.d = true;
   con.msg = [];
+  con.reply = {};
   con.ms = 0;
   con.byt = 0;
   con.b = '';
@@ -36,13 +40,12 @@ con = function() {
   con.recon = false;
   
   con.prototype.open = function(host, port, recon) {
-		con.port = port || con.port;
-		con.host = host || con.host;
-    con.recon = recon ? recon : con.recon;
-		con.r = function(res){ // function to handle all responses from Mongo
-			reply(con,res);
-		};
-	
+	con.port = port || con.port;
+	con.host = host || con.host;
+	con.recon = recon ? recon : con.recon;
+	con.r = function(res){ // function to handle all responses from Mongo
+		reply(con,res);
+	};
     con.c = new net.createConnection(con.port, con.host); //creates the connection
     con.c.addListener('connect', function() { // Mongo responds for the first time
 	  var MasterCmd;
@@ -63,11 +66,38 @@ con = function() {
       return con.c.write(com.binary(MasterCmd, 2004, 0), 'binary'); // this makes us the master of Mongo
 	  
     });
+	var start = (function(m){
+		var spawn = require('child_process').spawn;
+		log("starting Mongod");
+		var mongod = spawn('mongod',[
+			'--bind_ip',con.host
+			,'--port',con.port
+			//,'--dbpath'
+		]);
+		mongod.on('exit',function(c,s){
+			log("Mongod exited");
+		});
+		mongod.stderr.on('data',function(d){
+			log(d.toString());
+		});
+		mongod.stdout.setEncoding('utf8');
+		mongod.stdout.on('data', __bind(function (data) {
+			if (/\[initandlisten\] waiting for connections on port/.test(data)){
+				m.open(con.host,con.port);
+			}
+		}, m));
+	});
     con.c.addListener('error', __bind(function(e) {
-      return con.c.emit('error', e);
+		if(e && e.code == 'ECONNREFUSED'){
+			var path = require('path'), mexist = path.existsSync('/usr/local/bin/mongod');
+			if(mexist) start(this);
+		} else {
+			log(e);
+			//return con.c.emit('error', e);
+		}
     }, this));
     con.c.addListener('close', __bind(function() {
-      return con.c.emit('close');
+		//return con.c.emit('close');
     }, this));
 	con.c.som = 0;
 	con.c.br = 0;
@@ -76,27 +106,24 @@ con = function() {
     con.c.addListener('data', con.r); // listen for it!
 	return con.c;
   };
+  
   con.prototype.close = function() {
     if (con.c) {
       return con.c.end();
     }
   };
   con.prototype.send = function(cmd) { // receive BSON command
-    var nc;
-    try {
-      return con.c.write(cmd, 'binary'); // send it to Mongo
-    } catch (e) {
-		console.log("MONGOUS.con.send -> con.c.write fail");
+    var nc, send = (function(e){
       if(con.c._connecting) { // if we are in the middle of connecting
         con.msg.push(cmd); // queue the commands in order
-        return con.c.addListener('connected', __bind(function() { // listen for when we are connected
-          var _results;
-          _results = [];
-          while (con.msg.length > 0) { //then shuffle them out to Mongo
-            _results.push(con.c.write(con.msg.shift(), 'binary'));
-          }
-          return _results;
-        }, this));
+		con.ccc = (function(c) { // listen for when we are connected
+			var _results;
+			_results = [];
+			while (con.msg.length > 0) { //then shuffle them out to Mongo
+				_results.push(c.write(con.msg.shift(), 'binary'));
+			}
+			return _results;
+        });
       } else if (con.recon) { // n-m-n thing, was broken. I assume it does the same as above, except during reconnect
         con.msg.push(cmd);
         if (con.c.currently_reconnecting === null) {
@@ -118,7 +145,17 @@ con = function() {
       } else {
         return console.log('Error: readyState not defined');
       }
-    }
+    });
+	if(con.s){
+		try {
+			return con.c.write(cmd, 'binary'); // send it to Mongo
+		}catch(e) {
+			console.log("MONGOUS.con.send -> con.c.write fail");
+			send();
+		}
+	} else {
+		send();
+	}
   };
   con.prototype.log = function(info) {
     return console.log('log', " - " + info);
@@ -263,19 +300,19 @@ mongous = function() {
     id = this.id();
     docs = [];
     it = 0;
-    con.c.addListener(id.toString(), __bind(function(msg) {
-      var lim;
-      it += msg.numberReturned;
-      if (msg.more && o.lim == 0) {
-        //lim = o.lim - it < 500 ? 500 : o.lim - it;
-        this.more(cmd.collectionName, 500, msg.cursorID, id);
-      } else {
-        con.c.removeListener(id.toString(), con.c.listeners(id.toString())[0]);
-      }
-      if (fn) {
-        return fn(msg);
-      }
-    }, this));
+	con.reply[id.toString()] = __bind(function(msg){
+		var lim;
+		it += msg.numberReturned;
+		if (msg.more && o.lim == 0) {
+			//lim = o.lim - it < 500 ? 500 : o.lim - it;
+			this.more(cmd.collectionName, 500, msg.cursorID, id);
+		} else {
+			delete con.reply[id.toString()];
+		}
+		if (fn) {
+			return fn(msg);
+		}
+    },this);
     return this.send(cmd, 2004, id);
   };
   mongous.prototype.remove = function() {

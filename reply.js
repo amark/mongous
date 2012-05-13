@@ -41,12 +41,18 @@ module.exports = (function(con,res){
 			} else if(som <= res.length){
 				var r = new mr(res.slice(0,som));
 				if(con.s){
-					con.c.emit(r.responseTo.toString(),r);
+					var rts = r.responseTo.toString();
+					if(con.reply[rts]){
+						con.reply[rts](r);
+					} else {
+						con.c.emit(rts,r);
+					}
 				} else {
 					if(r.documents.length && r.documents[0].ismaster){
 						con.s = true;
 						console.log("connected!");
 						con.c.emit('connected',con.s);
+						if(con.ccc) con.ccc(con.c);
 					} else {
 						con.s = false;
 					}
