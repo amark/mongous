@@ -89,8 +89,7 @@ con = function() {
 	});
     con.c.addListener('error', __bind(function(e) {
 		if(e && e.code == 'ECONNREFUSED'){
-			var path = require('path'), mexist = path.existsSync('/usr/local/bin/mongod');
-			if(mexist) start(this);
+			if((require('fs').existsSync||require('path').existsSync)('/usr/local/bin/mongod')) start(this);
 		} else {
 			log(e);
 			//return con.c.emit('error', e);
