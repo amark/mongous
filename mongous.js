@@ -38,11 +38,19 @@ con = function() {
   con.port = 27017;
   con.host = '127.0.0.1';
   con.recon = false;
+  con.config = {};
   
   con.prototype.open = function(host, port, recon) {
-	con.port = port || con.port;
-	con.host = host || con.host;
-	con.recon = recon ? recon : con.recon;
+	if(typeof host === 'string'){
+		con.port = port || con.port;
+		con.host = host || con.host;
+		con.recon = recon ? recon : con.recon;
+	} else {
+		con.port = host.port || con.port;
+		con.host = host.host || con.host;
+		con.recon = host.recon ? host.recon : host.recon;
+		con.config = host.config || con.config;
+	}
 	con.r = function(res){ // function to handle all responses from Mongo
 		reply(con,res);
 	};
@@ -67,13 +75,20 @@ con = function() {
 	  
     });
 	var start = (function(m){
-		var spawn = require('child_process').spawn;
+		var spawn = require('child_process').spawn,
+			config = [];
 		log("starting Mongod");
-		var mongod = spawn('mongod',[
-			'--bind_ip',con.host
-			,'--port',con.port
-			//,'--dbpath'
-		]);
+		con.config.port = con.config.port || con.port;
+		con.config.bind_ip = con.config.bind_ip || con.config.host || con.host;
+		for(var i in con.config){
+			if(__hasProp.call(con.config,i)){
+				config.push('--'+i);
+				if(con.config[i] !== true){
+					config.push(con.config[i]);
+				}
+			}
+		}
+		var mongod = spawn('mongod',config);
 		mongod.on('exit',function(c,s){
 			log("Mongod exited");
 		});
@@ -91,7 +106,7 @@ con = function() {
 		if(e && e.code == 'ECONNREFUSED'){
 			if((require('fs').existsSync||require('path').existsSync)('/usr/local/bin/mongod')) start(this);
 		} else {
-			log(e);
+			log('Mongous : '+e);
 			//return con.c.emit('error', e);
 		}
     }, this));
@@ -115,14 +130,14 @@ con = function() {
     var nc, send = (function(e){
       if(con.c._connecting) { // if we are in the middle of connecting
         con.msg.push(cmd); // queue the commands in order
-		con.ccc = (function(c) { // listen for when we are connected
-			var _results;
-			_results = [];
-			while (con.msg.length > 0) { //then shuffle them out to Mongo
-				_results.push(c.write(con.msg.shift(), 'binary'));
-			}
-			return _results;
-        });
+				con.ccc = (function(c) { // listen for when we are connected
+					var _results;
+					_results = [];
+					while (con.msg.length > 0) { //then shuffle them out to Mongo
+						_results.push(c.write(con.msg.shift(), 'binary'));
+					}
+					return _results;
+				});
       } else if (con.recon) { // n-m-n thing, was broken. I assume it does the same as above, except during reconnect
         con.msg.push(cmd);
         if (con.c.currently_reconnecting === null) {
@@ -142,19 +157,20 @@ con = function() {
           }, this));
         }
       } else {
+				//console.log(con.c);
         return console.log('Error: readyState not defined');
       }
     });
-	if(con.s){
-		try {
-			return con.c.write(cmd, 'binary'); // send it to Mongo
-		}catch(e) {
-			console.log("MONGOUS.con.send -> con.c.write fail");
+		if(con.s){
+			try {
+				return con.c.write(cmd, 'binary'); // send it to Mongo
+			}catch(e) {
+				console.log("MONGOUS.con.send -> con.c.write fail");
+				send();
+			}
+		} else {
 			send();
 		}
-	} else {
-		send();
-	}
   };
   con.prototype.log = function(info) {
     return console.log('log', " - " + info);
