@@ -130,14 +130,14 @@ con = function() {
     var nc, send = (function(e){
       if(con.c._connecting) { // if we are in the middle of connecting
         con.msg.push(cmd); // queue the commands in order
-				con.ccc = (function(c) { // listen for when we are connected
-					var _results;
-					_results = [];
-					while (con.msg.length > 0) { //then shuffle them out to Mongo
-						_results.push(c.write(con.msg.shift(), 'binary'));
-					}
-					return _results;
-				});
+		con.ccc = (function(c) { // listen for when we are connected
+			var _results;
+			_results = [];
+			while (con.msg.length > 0) { //then shuffle them out to Mongo
+				_results.push(c.write(con.msg.shift(), 'binary'));
+			}
+			return _results;
+		});
       } else if (con.recon) { // n-m-n thing, was broken. I assume it does the same as above, except during reconnect
         con.msg.push(cmd);
         if (con.c.currently_reconnecting === null) {

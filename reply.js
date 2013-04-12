@@ -12,8 +12,13 @@ module.exports = (function(con,res){
 			var b = new Buffer(con.c.b.length + res.length);
 			con.c.b.copy(b, 0,0, con.c.b.length);
 			res.copy(b, con.c.b.length,0, rb);
-			var r = new mr(b);
-			con.c.emit(r.responseTo.toString(),r);
+			var r = new mr(b), rts;
+			rts = r.responseTo.toString();
+			if(con.reply[rts]){
+				con.reply[rts](r);
+			} else {
+				con.c.emit(rts,r);
+			}
 			con.c.b = new Buffer(0);
 			con.c.br = 0;
 			con.c.som = 0;
