@@ -290,9 +290,9 @@ mongous = function() {
     num = [];
     for (_i = 0, _len = a.length; _i < _len; _i++) {
       i = a[_i];
-      if (i instanceof Function) {
+      if (Object.prototype.toString.call(i) === "[object Function]") {
         fn = i;
-      } else if (i instanceof Object) {
+      } else if (Object.prototype.toString.call(i) === "[object Object]") {
         obj.push(i);
       } else if (!isNaN(i)) {
         num.push(i);
