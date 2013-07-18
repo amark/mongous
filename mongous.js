@@ -18,7 +18,7 @@ Long = require('./goog/math/long').Long;
 MD5 = require('./crypto/md5').MD5;
 
 var log = function(s){
-	console.log(s);
+	process.stderr.write(s + '\n');
 };
 con = function() {
   function con() {
@@ -57,7 +57,7 @@ con = function() {
     con.c = new net.createConnection(con.port, con.host); //creates the connection
     con.c.addListener('connect', function() { // Mongo responds for the first time
 	  var MasterCmd;
-      console.log("connecting...");
+      process.stderr.write("connecting...\n");
       con.c.setTimeout(0);
       con.c.setNoDelay();
 	  
@@ -158,14 +158,15 @@ con = function() {
         }
       } else {
 				//console.log(con.c);
-        return console.log('Error: readyState not defined');
+        process.stderr.write('Error: readyState not defined\n');
+        return false;
       }
     });
 		if(con.s){
 			try {
 				return con.c.write(cmd, 'binary'); // send it to Mongo
 			}catch(e) {
-				console.log("MONGOUS.con.send -> con.c.write fail");
+				process.stderr.write("MONGOUS.con.send -> con.c.write fail\n");
 				send();
 			}
 		} else {
@@ -173,10 +174,12 @@ con = function() {
 		}
   };
   con.prototype.log = function(info) {
-    return console.log('log', " - " + info);
+    process.stderr.write('log', " - " + info + '\n');
+    return false;
   };
   con.prototype.leg = function(error) {
-    return console.log(" - Error: " + error.toString().replace(/error:/i, ''));
+    process.stderr.write(" - Error: " + error.toString().replace(/error:/i, '') + '\n');
+    return false;
   };
   return con;
 }();
@@ -190,12 +193,12 @@ mongous = function() {
       this.open(con.host,con.port);
     } 
     if (s.length >= 80) {
-      console.log("Error: '" + s + "' - Database name and collection exceed 80 character limit.");
+      process.stderr.write("Error: '" + s + "' - Database name and collection exceed 80 character limit.\n");
       e = true;
     }
     p = s.search(/\./);
     if (p <= 0) {
-      console.log("Error: '" + s + "' - Database.collection nomenclature required");
+      process.stderr.write("Error: '" + s + "' - Database.collection nomenclature required\n");
       e = true;
     }
     this.db = s.slice(0, p);
@@ -203,15 +206,15 @@ mongous = function() {
 		if(this.col != '$cmd') {
 			if (this.col.search(/\$/) >= 0) {
 				if (this.col.search(/\$cmd/i) < 0) {
-				console.log("Error: '" + s + "' - cannot use '$' unless for commands.");
+				process.stderr.write("Error: '" + s + "' - cannot use '$' unless for commands.\n");
 				e = true;
 				} else {
-				console.log("Error: '" + s + "' - silent.");
+				process.stderr.write("Error: '" + s + "' - silent.\n");
 				e = true;
 				}
 			} else 
 			if (this.col.search(/^[a-z|\_]/i) < 0) {
-				console.log("Error: '" + s + "' - Collection must start with a letter or an underscore.");
+				process.stderr.write("Error: '" + s + "' - Collection must start with a letter or an underscore.\n");
 				e = true;
 			}
 		}
@@ -225,7 +228,7 @@ mongous = function() {
 	  var usr, pwd, self, fn;
 	  usr = arguments[0], pwd = arguments[1], fn = arguments[2];
 	  if(!usr || !pwd) {
-		  console.log("User and password required.");
+		  process.stderr.write("User and password required.\n");
 		  return false;
 	  }
 	  self = this;
@@ -259,7 +262,7 @@ mongous = function() {
     var a, b, c, cmd, m, u;
     a = arguments[0], b = arguments[1], c = 3 <= arguments.length ? __slice.call(arguments, 2) : [];
     if (!a || !b) {
-      console.log("Query and document required.");
+      process.stderr.write("Query and document required.\n");
     }
     if (c[0] || c.length === 2) {
       if (c[0] instanceof Object) {
@@ -334,7 +337,7 @@ mongous = function() {
     var a, b, cmd, m, r = 0; // r=reserved & must be 0 (as per the spec)
     a = arguments[0], b = 2 <= arguments.length ? __slice.call(arguments, 1) : [];
     if (!a) {
-      console.log("Query required.");
+      process.stderr.write("Query required.\n");
     }
     if (b[0] || b.length === 1) {
       m = b[0] ? 1 : 0; // atomic

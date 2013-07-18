@@ -55,7 +55,7 @@ module.exports = (function(con,res){
 				} else {
 					if(r.documents.length && r.documents[0].ismaster){
 						con.s = true;
-						console.log("connected!");
+						process.stderr.write("connected!\n");
 						con.c.emit('connected',con.s);
 						if(con.ccc) con.ccc(con.c);
 					} else {
