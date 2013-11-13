@@ -74,7 +74,7 @@ con = function() {
       return con.c.write(com.binary(MasterCmd, 2004, 0), 'binary'); // this makes us the master of Mongo
 	  
     });
-	var start = (function(m){
+	function start(m){
 		var spawn = require('child_process').spawn,
 			config = [];
 		log("starting Mongod");
@@ -91,6 +91,7 @@ con = function() {
 		var mongod = spawn('mongod',config);
 		mongod.on('exit',function(c,s){
 			log("Mongod exited");
+			start(m); // comment this out if you don't want auto-restart on exit. I'll add an option for it later.
 		});
 		mongod.stderr.on('data',function(d){
 			log(d.toString());
@@ -101,7 +102,7 @@ con = function() {
 				m.open(con.host,con.port);
 			}
 		}, m));
-	});
+	};
     con.c.addListener('error', __bind(function(e) {
 		if(e && e.code == 'ECONNREFUSED'){
 			if((require('fs').existsSync||require('path').existsSync)('/usr/local/bin/mongod')) start(this);
