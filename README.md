@@ -63,7 +63,7 @@ Done. App development has never felt as close to the shell as this! Making it a 
 				<br/>Ex: <code>{ name: 1, age: 1 }</code>
 			- third object
 				is any of the following options:
-				<br/> <code>{ lim: x, skip: y }</code>
+				<br/> <code>{ lim: x, skip: y, sort:{age: 1} }</code>
 		- Numbers
 			- first number
 				is the limit (return all if not specified)
@@ -82,6 +82,8 @@ Done. App development has never felt as close to the shell as this! Making it a 
 			reply.documents skips the first 2 documents and is the next 3 documents.
 		- <code>db('blog.users').find(function(reply){ }, {age: 25}, {}, {limit: 5, skip: 2})</code><br/>
 			is the same as the previous example except only of doucments with the age of 25.
+		- <code>db('blog.users').find({}, {}, {sort: {age: -1}}, function(reply){ })</code><br/>
+			reply.documents is sorted by age in a decsending (acsending while it is {age:1} ) order.  
 - **Operations** <code>db('blog.$cmd').find(command,1)</code>
 	- command
 		is the database operation command you want to perform.

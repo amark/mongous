@@ -304,6 +304,7 @@ mongous = function() {
     q = obj[0] ? obj[0] : {};
     f = obj[1] ? obj[1] : null;
     o = obj[2] ? obj[2] : {};
+	if(o.sort != void 0)	q = {$query: q, $orderby: o.sort};
     o = {
       lim: o.lim !== void 0 ? o.lim : num[0] ? num[0] : 0,
       skip: o.skip !== void 0 ? o.skip : num[1] ? num[1] : 0
