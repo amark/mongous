@@ -305,13 +305,16 @@ mongous = function() {
     q = obj[0] ? obj[0] : {};
     f = obj[1] ? obj[1] : null;
     o = obj[2] ? obj[2] : {};
-    if(o.sort != void 0)	q = {$query: q, $orderby: o.sort};
-    o = {
-      lim: o.lim !== void 0 ? o.lim : num[0] ? num[0] : 0,
-      skip: o.skip !== void 0 ? o.skip : num[1] ? num[1] : 0
-    };
+	if(o.join != void 0) {
+		
+	}
+    if(o.sort != void 0) {
+		q = {$query: q, $orderby: o.sort};
+	}
+	o.lim = o.lim !== void 0 ? o.lim : num[0] ? num[0] : 0;
+    o.skip = o.skip !== void 0 ? o.skip : num[1] ? num[1] : 0;
     cmd = {
-      collectionName: this.db + '.' + this.col,
+      collectionName: (o.$db || this.db) + '.' + (o.$col || this.col),
       numberToSkip: o.skip,
       numberToReturn: o.lim,
       query: q,
@@ -323,14 +326,69 @@ mongous = function() {
 	con.reply[id.toString()] = __bind(function(msg){
 		var lim;
 		it += msg.numberReturned;
-		if (msg.more && o.lim == 0) {
-			//lim = o.lim - it < 500 ? 500 : o.lim - it;
-			this.more(cmd.collectionName, 500, msg.cursorID, id);
+		var next = __bind(function(a){
+			if(o.join && a) {
+				if(a.obj(o.join).each(function(v,i){
+					if(v !== true) return true;
+				})){ return }
+			}
+			if (msg.more && o.lim == 0) {
+				//lim = o.lim - it < 500 ? 500 : o.lim - it;
+				this.more(cmd.collectionName, 500, msg.cursorID, id);
+			} else {
+				delete con.reply[id.toString()];
+			}
+			if (fn) {
+				return fn(msg);
+			}
+		},this);
+		var self = this;
+		if(o.join && msg.documents && msg.documents.length){
+			var a = require('theory')()
+			, docs = msg.documents;
+			a.obj(o.join).each(function(to, on, t){
+				var q = {}, db, col;
+				if(to[0] === '$'){
+					to = to.split('.');
+					db = to.shift().replace('$','');
+					to = '.' + to.join('.');
+				}
+				if(to[0] === '.'){
+					to = to.split('.');
+					to.shift(); // get rid of empty ''.
+					col = to.shift();
+					to = to.join('.');
+				}
+				q[to] = {$in:[]};
+				a.list(docs).each(function(doc,i){
+					if(doc && (i = a(doc, on))){
+						q[to].$in.push(i);
+					}
+				});
+				self.find(q, {}, {$db: db, $col: col}, function(m){
+					if(m && m.documents && m.documents.length){
+						a.list(m.documents).each(function(doc,val,t){
+							if(doc && (val = a(doc,to)) !== undefined){
+								a.list(docs).each(function(at){
+									var w = {
+										l: on.split('.').length
+										,f: a.text(on).clip('.',-1)
+										,p: a.text(on).clip('.',0,-1)
+									};
+									w.o = w.l === 1? at : a(at, o.p);
+									if(w.o[w.f] === val){
+										w.o[w.f] = doc;
+									}
+								});
+							}
+						});
+					}
+					o.join[on] = true;
+					next(a);
+				});
+			});
 		} else {
-			delete con.reply[id.toString()];
-		}
-		if (fn) {
-			return fn(msg);
+			next();
 		}
     },this);
     return this.send(cmd, 2004, id);
