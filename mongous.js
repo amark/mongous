@@ -284,6 +284,7 @@ mongous = function() {
     };
     return this.send(cmd, 2001);
   };
+  var CID = 0;
   mongous.prototype.find = function() {
     var a, cmd, docs, f, fn, i, id, it, num, o, obj, q, _i, _len;
     a = 1 <= arguments.length ? __slice.call(arguments, 0) : [];
@@ -326,17 +327,17 @@ mongous = function() {
 	con.reply[id.toString()] = __bind(function(msg){
 		var lim;
 		it += msg.numberReturned;
-		var next = __bind(function(a){
-			if(o.join && a) {
-				if(a.obj(o.join).each(function(v,i){
-					if(v !== true) return true;
+		if (msg.more && o.lim == 0) {
+			//lim = o.lim - it < 500 ? 500 : o.lim - it;
+			this.more(cmd.collectionName, 500, msg.cursorID, id);
+		} else {
+			delete con.reply[id.toString()];
+		}
+		var next = __bind(function(wait, a){
+			if(o.join && wait && a) {
+				if(a.obj(wait).each(function(v,i){
+					if(v) return v;
 				})){ return }
-			}
-			if (msg.more && o.lim == 0) {
-				//lim = o.lim - it < 500 ? 500 : o.lim - it;
-				this.more(cmd.collectionName, 500, msg.cursorID, id);
-			} else {
-				delete con.reply[id.toString()];
 			}
 			if (fn) {
 				return fn(msg);
@@ -345,8 +346,10 @@ mongous = function() {
 		var self = this;
 		if(o.join && msg.documents && msg.documents.length){
 			var a = require('theory')()
-			, docs = msg.documents;
+			, docs = msg.documents
+			, wait = {};
 			a.obj(o.join).each(function(to, on, t){
+				wait[on] = 1;
 				var q = {}, db, col;
 				if(to[0] === '$'){
 					to = to.split('.');
@@ -361,7 +364,7 @@ mongous = function() {
 				}
 				q[to] = {$in:[]};
 				a.list(docs).each(function(doc,i){
-					if(doc && (i = a(doc, on))){
+					if(doc && (i = a(doc, on)) !== undefined){
 						q[to].$in.push(i);
 					}
 				});
@@ -383,8 +386,8 @@ mongous = function() {
 							}
 						});
 					}
-					o.join[on] = true;
-					next(a);
+					wait[on] = 0;
+					next(wait, a);
 				});
 			});
 		} else {
