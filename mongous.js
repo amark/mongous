@@ -77,7 +77,6 @@ con = function() {
 	function start(m){
 		var spawn = require('child_process').spawn,
 			config = [];
-		log("starting Mongod");
 		con.config.port = con.config.port || con.port;
 		con.config.bind_ip = con.config.bind_ip || con.config.host || con.host;
 		for(var i in con.config){
@@ -88,6 +87,9 @@ con = function() {
 				}
 			}
 		}
+		con.local = (con.config.bind_ip.toLowerCase() === 'localhost' || con.config.bind_ip === '127.0.0.1')? true : false;
+		if(!con.local){ return; }
+		log("starting Mongod");
 		var mongod = spawn('mongod',config);
 		mongod.on('exit',function(c,s){
 			log("Mongod exited");

@@ -30,10 +30,10 @@ var $ = require("../mongous").Mongous;
 	, {}
 	, {join: {
 		user: '$test.user._id'
-		//,tournament: '.tournament._id'
+		,tournament: '.tournament._id'
 	}}
 	, function(r){
-		//r && r.documents && console.log(r.documents[r.documents.length-1]);
+		r && r.documents && console.log(r.documents[r.documents.length-1]);
 		console.log('in ' + ((new Date().getTime()) - TS) +'ms');
 		
 		// remove them. 
