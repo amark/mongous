@@ -37,8 +37,9 @@ con = function() {
   con.bb = '';
   con.port = 27017;
   con.host = '127.0.0.1';
-  con.recon = false;
+  con.recon = true;
   con.config = {};
+  con.depend = false;
   
   con.prototype.open = function(host, port, recon) {
 	if(typeof host === 'string'){
@@ -50,6 +51,7 @@ con = function() {
 		con.host = host.host || con.host;
 		con.recon = host.recon ? host.recon : host.recon;
 		con.config = host.config || con.config;
+		con.depend = host.depend || con.depend;
 	}
 	con.r = function(res){ // function to handle all responses from Mongo
 		reply(con,res);
@@ -88,12 +90,19 @@ con = function() {
 			}
 		}
 		con.local = (con.config.bind_ip.toLowerCase() === 'localhost' || con.config.bind_ip === '127.0.0.1')? true : false;
-		if(!con.local){ return; }
-		log("starting Mongod");
+		if(!con.local || con.depend){ return; }
+		if(process.env.MONGOUS_LOCK != undefined
+		&& process.env.MONGOUS_LOCK != process.pid){ 
+			return m.open(con.host,con.port);
+		}
+		process.env.MONGOUS_LOCK = process.pid;
 		var mongod = spawn('mongod',config);
 		mongod.on('exit',function(c,s){
+			if(process.env.MONGOUS_LOCK == process.pid){
+				process.env.MONGOUS_LOCK = ''; // 0 and false don't work, cause they are cast to strings!
+			}
 			log("Mongod exited");
-			start(m); // comment this out if you don't want auto-restart on exit. I'll add an option for it later.
+			start(m); // don't want auto-restart? Set depend = true.
 		});
 		mongod.stderr.on('data',function(d){
 			log(d.toString());
