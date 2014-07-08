@@ -69,7 +69,7 @@ con = function() {
         numberToSkip: 0,
         numberToReturn: -1,
         query: {
-          ismaster: 1
+          ismaster: 1 // TODO!!!!! Check for replica-sets with 'ismaster' command! Then connect to primary.
         },
         returnFieldSelector: null
       };
@@ -93,9 +93,13 @@ con = function() {
 		if(!con.local || con.depend){ return; }
 		if(process.env.MONGOUS_LOCK != undefined
 		&& process.env.MONGOUS_LOCK != process.pid){ 
-			return m.open(con.host,con.port);
+			return setTimeout(function(){ m.open(con.host,con.port) }, 100);
 		}
 		process.env.MONGOUS_LOCK = process.pid;
+		if(!start.count){
+			start.count += 1;
+			return setTimeout(function(){ start(m) }, 50);
+		}
 		var mongod = spawn('mongod',config);
 		mongod.on('exit',function(c,s){
 			if(process.env.MONGOUS_LOCK == process.pid){
@@ -114,6 +118,7 @@ con = function() {
 			}
 		}, m));
 	};
+	start.count = 0;
     con.c.addListener('error', __bind(function(e) {
 		if(e && e.code == 'ECONNREFUSED'){
 			if((require('fs').existsSync||require('path').existsSync)('/usr/local/bin/mongod')) start(this);
