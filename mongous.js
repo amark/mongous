@@ -14,7 +14,7 @@ ee = require('events').EventEmitter;
 com = require('./commands').Commands;
 mr = require('./responses/mongo_reply').MongoReply;
 reply = require('./reply');
-Long = require('./goog/math/long').Long; 
+Long = require('./goog/math/long').Long;
 MD5 = require('./crypto/md5').MD5;
 ObjectID = require('./bson/objectid').ObjectID;
 
@@ -41,7 +41,7 @@ con = function() {
   con.recon = true;
   con.config = {};
   con.depend = false;
-  
+
   con.prototype.open = function(host, port, recon) {
 	if(typeof host === 'string'){
 		con.port = port || con.port;
@@ -63,7 +63,7 @@ con = function() {
       process.stderr.write("connecting...\n");
       con.c.setTimeout(0);
       con.c.setNoDelay();
-	  
+
       MasterCmd = {
         collectionName: 'mongous.$cmd',
         queryOptions: 16,
@@ -75,7 +75,7 @@ con = function() {
         returnFieldSelector: null
       };
       return con.c.write(com.binary(MasterCmd, 2004, 0), 'binary'); // this makes us the master of Mongo
-	  
+
     });
 	function start(m){
 		var spawn = require('child_process').spawn,
@@ -93,7 +93,7 @@ con = function() {
 		con.local = (con.config.bind_ip.toLowerCase() === 'localhost' || con.config.bind_ip === '127.0.0.1')? true : false;
 		if(!con.local || con.depend){ return; }
 		if(process.env.MONGOUS_LOCK != undefined
-		&& process.env.MONGOUS_LOCK != process.pid){ 
+		&& process.env.MONGOUS_LOCK != process.pid){
 			return setTimeout(function(){ m.open(con.host,con.port) }, 100);
 		}
 		process.env.MONGOUS_LOCK = process.pid;
@@ -138,7 +138,7 @@ con = function() {
     con.c.addListener('data', con.r); // listen for it!
 	return con.c;
   };
-  
+
   con.prototype.close = function() {
     if (con.c) {
       return con.c.end();
@@ -209,7 +209,7 @@ mongous = function() {
     e = false;
     if (con.c === null) { // if we haven't connected yet, then connect
       this.open(con.host,con.port);
-    } 
+    }
     if (s.length >= 80) {
       process.stderr.write("Error: '" + s + "' - Database name and collection exceed 80 character limit.\n");
       e = true;
@@ -230,7 +230,7 @@ mongous = function() {
 				process.stderr.write("Error: '" + s + "' - silent.\n");
 				e = true;
 				}
-			} else 
+			} else
 			if (this.col.search(/^[a-z|\_]/i) < 0) {
 				process.stderr.write("Error: '" + s + "' - Collection must start with a letter or an underscore.\n");
 				e = true;
@@ -263,7 +263,7 @@ mongous = function() {
 			  }
 		  }, 1);
 	  }, 1);
-  } 
+  }
   mongous.prototype.open = function() {
     return mongous.__super__.open.apply(this, arguments);
   };
@@ -324,14 +324,15 @@ mongous = function() {
     f = obj[1] ? obj[1] : null;
     o = obj[2] ? obj[2] : {};
 	if(o.join != void 0) {
-		
+
 	}
-    if(o.sort != void 0) {
+  if(o.sort != void 0) {
 		q = {$query: q, $orderby: o.sort};
 	}
     // auto convert from _id string to ObjectID
-    if (q._id && typeof q._id === 'string' && /^[0-9a-f]{24}$/.test(q._id))
-        q._id = new ObjectID(q._id);
+  if(q._id && typeof q._id === 'string' && /^[0-9a-f]{24}$/.test(q._id)){
+    q._id = new ObjectID(q._id);
+  }
 	o.lim = o.lim !== void 0 ? o.lim : num[0] ? num[0] : 0;
     o.skip = o.skip !== void 0 ? o.skip : num[1] ? num[1] : 0;
     cmd = {
