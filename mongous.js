@@ -16,6 +16,7 @@ mr = require('./responses/mongo_reply').MongoReply;
 reply = require('./reply');
 Long = require('./goog/math/long').Long; 
 MD5 = require('./crypto/md5').MD5;
+ObjectID = require('./bson/objectid').ObjectID;
 
 var log = function(s){
 	process.stderr.write(s + '\n');
@@ -328,6 +329,9 @@ mongous = function() {
     if(o.sort != void 0) {
 		q = {$query: q, $orderby: o.sort};
 	}
+    // auto convert from _id string to ObjectID
+    if (q._id && typeof q._id === 'string' && /^[0-9a-f]{24}$/.test(q._id))
+        q._id = new ObjectID(q._id);
 	o.lim = o.lim !== void 0 ? o.lim : num[0] ? num[0] : 0;
     o.skip = o.skip !== void 0 ? o.skip : num[1] ? num[1] : 0;
     cmd = {
