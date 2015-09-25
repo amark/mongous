@@ -60,7 +60,6 @@ con = function() {
     con.c = new net.createConnection(con.port, con.host); //creates the connection
     con.c.addListener('connect', function() { // Mongo responds for the first time
 	  var MasterCmd;
-      process.stderr.write("connecting...\n");
       con.c.setTimeout(0);
       con.c.setNoDelay();
 
